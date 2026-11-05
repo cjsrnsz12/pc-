@@ -33,6 +33,9 @@ class Vision:
         self.data.update(HUD_TEMPLATES)
         # The food button sits beside the portrait, above the buff icon row.
         self.data['food']['roi'] = [65,45,250,180]
+        for key in DUNGEONS.values():
+            # All three card labels share this column, including the supplied newer list.
+            self.data['list_'+key]['roi'] = [175,480,365,810]
         # Separate text searches so 어려움 cannot match inside 매우 어려움2.
         for title, box in zip(DIFFICULTIES, DIFFICULTY_BOXES):
             self.data['diff_'+title]['roi'] = list(box)
@@ -143,6 +146,10 @@ class Vision:
             return Observation('reward', {'retry': h.center})
         if self.hit('matching'):
             return Observation('matching')
+        if self.hit('list_title'):
+            if (h := self.hit('list_' + DUNGEONS[dungeon])):
+                p['dungeon'] = h.center
+                return Observation('list', p)
         if self.hit('loading_name'):
             return Observation('loading')
         if (h := self.hit('skip')):
@@ -173,10 +180,6 @@ class Vision:
                     if white_left > .15 and white_left > white_right and float(np.median(hsv[:,:,1])) < 100:
                         toggle = False
             return Observation('detail',p,detected,together,selected,toggle)
-        if self.hit('list_title'):
-            if (h := self.hit('list_' + DUNGEONS[dungeon])):
-                p['dungeon'] = h.center
-                return Observation('list', p)
         if (h := self.menu_target()):
             return Observation('menu', {'abyss': h.center})
         # Health bar and game menu together establish a live game HUD.

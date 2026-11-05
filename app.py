@@ -33,6 +33,7 @@ import mss
 import numpy as np
 from PIL import Image, ImageTk
 from engine import Controller, Observation, State
+from recognition_timing import poll_interval, same_detection
 from vision import Vision, DUNGEONS, DIFFICULTIES
 from windows import Windows, WindowError
 from privileges import permission_advice, relaunch_admin, process_elevated
@@ -419,6 +420,7 @@ class App:
             detector=Vision(BASE/'assets.json')
             controller=Controller(config['dungeon'],config['difficulty'],config['repeat'])
             last_screen,streak,food_streak='',0,0
+            previous_observation=None
             paused_at=None;last_status=None;unknown_since=None;warned=False
             motion_log_state=None;motion_log_at=-999.
             with mss.mss() as capture:
@@ -431,7 +433,7 @@ class App:
                         self.stop_event.wait(.25);continue
                     if paused_at is not None:
                         if controller.entered_at is not None:controller.entered_at+=now-paused_at
-                        paused_at=None;last_status=None;last_screen='';streak=0
+                        paused_at=None;last_status=None;last_screen='';streak=0;previous_observation=None
                     self.win.ensure_game(hwnd)
                     left,top,width,height=self.win.rect(hwnd)
                     if (width,height)!=(800,1000):raise WindowError('화면 크기가 바뀌어 중지했습니다. 800×1000으로 다시 맞추세요.')
@@ -444,7 +446,8 @@ class App:
                     if not config['food'] or food_streak<2:
                         from dataclasses import replace
                         observation=replace(observation,food=False)
-                    streak=streak+1 if last_screen==observation.screen else 1
+                    streak=streak+1 if same_detection(previous_observation,observation) else 1
+                    previous_observation=observation
                     last_screen=observation.screen
                     if observation.screen=='unknown':
                         controller.still_since=None
@@ -467,7 +470,7 @@ class App:
                         self.events.put(('log',action.message+(f' / 찾은 버튼 위치 {action.point}' if action.key=='abyss' else '')))
                     if controller.state==State.BLOCKED:
                         self.events.put(('log',controller.reason));break
-                    self.stop_event.wait(.25)
+                    self.stop_event.wait(poll_interval(observation.screen))
         except Exception as e:
             LOG.exception('Worker stopped')
             self.events.put(('error',(e,hwnd)))

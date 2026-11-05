@@ -1,6 +1,7 @@
 """Deterministic screen state controller. No operating-system calls in this module."""
 from dataclasses import dataclass, field
 from enum import Enum
+from recognition_timing import click_settle
 
 
 class State(str, Enum):
@@ -73,7 +74,7 @@ class Controller:
             self.attempts = 0
         self.last_key, self.last_at = key, now
         self.attempts += 1
-        self.settle_until = now + 0.65
+        self.settle_until = now + click_settle(key)
         return Action(key, point, message)
 
     def step(self, o: Observation, now: float):
