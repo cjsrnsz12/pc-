@@ -1,7 +1,7 @@
 {
-  "version": "1.0.1",
-  "title": "마비노기 모바일 전용 인식·자동 창 맞추기",
-  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.0.1",
-  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.0.1/AbyssHelper.exe",
-  "notes": "800×1000 게임 화면, 4초 정지 확인, 어비스 입장 및 보상 반복, 음식·협동 미션 처리, CMD 없는 실행, 업데이트 안내"
+  "version": "1.0.2",
+  "title": "앱 내 새 버전 직접 다운로드",
+  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.0.2",
+  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.0.2/AbyssHelper.exe",
+  "notes": "업데이트 창에서 직접 다운로드, 진행률·취소·재시도, 파일 검증 및 저장 폴더 열기"
 }
