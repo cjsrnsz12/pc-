@@ -13,6 +13,18 @@ from release_notes import grouped_changes
 def exercise_update_dialogs(app,report_path):
     import mss
     root=app.root;root.deiconify();root.update()
+    import tempfile
+    with tempfile.TemporaryDirectory() as directory:
+        notice_state=Path(directory)/'release-notice.json'
+        assert app.show_installed_changes(notice_state)
+        installed=app.installed_notice;root.update()
+        assert '업데이트 내용' in installed.heading.cget('text')
+        assert not installed.primary.winfo_ismapped() and not installed.file_button.winfo_ismapped()
+        assert installed.close_button.winfo_ismapped()
+        assert not app.show_installed_changes(notice_state)
+        installed.close();root.update()
+        assert not app.show_installed_changes(notice_state)
+
     release={'version':'v99.0.0','is_new':True,'notes':'## 새 기능\n- 작은 업데이트 창\n## 개선\n- 둥근 스크롤바\n## 버그 수정\n- 설치 버튼 잘림 수정',
              'changes':grouped_changes('## 새 기능\n- 작은 업데이트 창\n## 개선\n- 둥근 스크롤바\n## 버그 수정\n- 설치 버튼 잘림 수정')}
     def pump(predicate,timeout=6):

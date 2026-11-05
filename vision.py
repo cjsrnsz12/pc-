@@ -104,6 +104,13 @@ class Vision:
         # Ambiguous/transitional frames must never satisfy the entry condition.
         return (candidates[0] if len(candidates) == 1 else ''), point
 
+    def list_target(self,dungeon):
+        # Match only the white dungeon name. The difficulty label and card tint
+        # underneath are deliberately excluded from both identity and selection.
+        if self.hit('list_title'):
+            return self.hit('list_'+DUNGEONS[dungeon])
+        return None
+
     def menu_target(self):
         # Banner height is variable. Match the actual icon/label and corroborate its row.
         if self.hit('menu_close') is None:return None
@@ -146,10 +153,8 @@ class Vision:
             return Observation('reward', {'retry': h.center})
         if self.hit('matching'):
             return Observation('matching')
-        if self.hit('list_title'):
-            if (h := self.hit('list_' + DUNGEONS[dungeon])):
-                p['dungeon'] = h.center
-                return Observation('list', p)
+        if (h := self.list_target(dungeon)):
+            return Observation('list', {'dungeon':h.center}, dungeon=dungeon)
         if self.hit('loading_name'):
             return Observation('loading')
         if (h := self.hit('skip')):

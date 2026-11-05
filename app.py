@@ -34,6 +34,7 @@ import numpy as np
 from PIL import Image, ImageTk
 from engine import Controller, Observation, State
 from recognition_timing import poll_interval, same_detection
+from startup_notes import needs_notice, installed_release, mark_shown
 from vision import Vision, DUNGEONS, DIFFICULTIES
 from windows import Windows, WindowError
 from privileges import permission_advice, relaunch_admin, process_elevated
@@ -74,6 +75,7 @@ class App:
         self.download_workers = []
         self.update_dialog = None
         self.update_notice = None
+        self.installed_notice = None
         self.update_prompt = None
         self.install_owner = None
         self.latest_release = None
@@ -106,6 +108,7 @@ class App:
         self.log('게임 창 자동 맞추기 또는 시작을 누르면 필요한 권한을 확인합니다. 권한 확인 버튼으로도 볼 수 있습니다.')
         root.after(100,self.pump)
         root.after(1600,self.update_check)
+        if '--smoke-test' not in sys.argv:root.after(700,self.show_installed_changes)
         if '--update-ready' in sys.argv:
             ready=Path(sys.argv[sys.argv.index('--update-ready')+1]).resolve()
             if ready.parent.parent==(DATA/'updates').resolve() and ready.parent.name.startswith('session-'):
@@ -481,6 +484,20 @@ class App:
             self.update_notice.show();return
         self.show_update_prompt(None)
         self.update_check(True)
+
+    def show_installed_changes(self,state_path=None):
+        if self.closing:return False
+        path=state_path if state_path is not None else DATA/'release-notice.json'
+        if not needs_notice(path,VERSION):return False
+        try:
+            release=installed_release(BASE/'release_notes.md',VERSION)
+            self.installed_notice=UpdateNotice(self,release)
+            self.installed_notice.dialog.update_idletasks()
+            mark_shown(path,VERSION)
+            return True
+        except (OSError,ValueError) as error:
+            self.log('업데이트 내용 자동 안내 실패: '+str(error))
+            return False
 
     def update_check(self,manual=False):
         self.update_manual_requested=self.update_manual_requested or manual

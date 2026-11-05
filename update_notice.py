@@ -98,6 +98,13 @@ class UpdateNotice:
         self.phase='idle';self.primary.configure(text='업데이트',state='normal' if newer else 'disabled',command=self.begin)
         self.file_button.configure(state='normal')
         self.status.set('업데이트를 누르면 다운로드·설치 후 새 버전으로 다시 실행합니다.' if newer else '표시된 내용은 현재 최신 버전에 적용된 변경 사항입니다.')
+        if release.get('installed_notice'):
+            self.dialog.title('업데이트 완료 · 변경 내용')
+            self.heading.configure(text=release['version']+' 업데이트 내용')
+            self.status.set('이번 버전에 적용된 변경 사항입니다.')
+            self.hint_label.configure(text='이 버전의 자동 안내는 이번 한 번만 표시합니다. X 또는 닫기로 닫을 수 있습니다.')
+            for control in (self.primary,self.cancel_button,self.file_button,self.folder_button,self.progress):control.pack_forget()
+
 
     def set_check_error(self,message):
         if self.closed:return

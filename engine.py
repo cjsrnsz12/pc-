@@ -192,6 +192,9 @@ class Controller:
                 self.combat_latched = True
             return a
         if o.screen == 'list':
+            if o.dungeon and o.dungeon != self.dungeon:
+                self.state,self.reason=State.BLOCKED,'목록의 던전 이름이 선택한 목적지와 다릅니다.'
+                return None
             self.state = State.LIST
             return self.emit('dungeon', o.points.get('dungeon'), self.dungeon + ' 선택', now)
         if o.screen == 'menu':
