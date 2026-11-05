@@ -197,6 +197,8 @@ class Controller:
             self.state = State.LIST
             return self.emit('abyss', o.points.get('abyss'), '메뉴 → 어비스', now)
         if o.screen == 'field':
+            food = self.food_action(o, now)
+            if food:return food
             self.state = State.IDLE
             if not o.still:
                 self.still_since = None

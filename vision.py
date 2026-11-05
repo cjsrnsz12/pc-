@@ -8,6 +8,7 @@ import numpy as np
 from engine import Observation
 from motion import Stillness
 from detail_templates import DETAIL_TEMPLATES
+from hud_templates import HUD_TEMPLATES
 
 DUNGEONS = {'허상의 정박지': 'harbor', '광기의 동굴': 'cave', '흩어진 물길': 'water'}
 DIFFICULTIES = ['입문', '어려움', '매우 어려움', '매우 어려움2']
@@ -29,6 +30,9 @@ class Vision:
     def __init__(self, asset_path: Path):
         self.data = json.loads(asset_path.read_text(encoding='utf-8'))
         self.data.update(DETAIL_TEMPLATES)
+        self.data.update(HUD_TEMPLATES)
+        # The food button sits beside the portrait, above the buff icon row.
+        self.data['food']['roi'] = [65,45,250,180]
         # Separate text searches so 어려움 cannot match inside 매우 어려움2.
         for title, box in zip(DIFFICULTIES, DIFFICULTY_BOXES):
             self.data['diff_'+title]['roi'] = list(box)
@@ -184,7 +188,7 @@ class Vision:
             food = self.hit('food')
             if food:
                 p['food'] = food.center
-            combat=self.combat_hud(self.frame)
+            combat=self.combat_hud(self.frame) or self.hit('objective_harbor') is not None
             if not combat and not menu:
                 self.stillness.reset()
                 return Observation()
