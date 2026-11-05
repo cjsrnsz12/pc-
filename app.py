@@ -1,4 +1,17 @@
+import sys
+if __name__=='__main__' and '--apply-update' in sys.argv:
+    from installer import apply_plan
+    raise SystemExit(apply_plan(sys.argv[sys.argv.index('--apply-update')+1]))
+
 """Abyss Helper desktop application (Windows; packaged with --windowed)."""
+if __name__=='__main__' and '--test-update-owner' in sys.argv:
+    from installer import integration_owner
+    integration_owner(sys.argv[sys.argv.index('--test-update-owner')+1])
+    raise SystemExit(0)
+if __name__=='__main__' and '--updater-self-test' in sys.argv:
+    from installer import integration_self_test
+    raise SystemExit(integration_self_test(sys.argv[sys.argv.index('--report')+1]))
+
 from windows import dpi_aware
 dpi_aware()
 import json
@@ -13,6 +26,8 @@ import time
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 import webbrowser
+import uuid
+import shutil
 import cv2
 import mss
 import numpy as np
@@ -22,10 +37,12 @@ from vision import Vision, DUNGEONS, DIFFICULTIES
 from windows import Windows, WindowError
 from updates import check_update, release_url, download_release, DownloadCancelled
 from version import VERSION, REPOSITORY
+from installer import prepare_install, launch_installer, cleanup_updates
 
 BASE = Path(getattr(sys,'_MEIPASS',Path(__file__).resolve().parent))
 DATA = Path(os.getenv('LOCALAPPDATA', str(Path.home()))) / 'AbyssHelper'
 DATA.mkdir(parents=True,exist_ok=True)
+cleanup_updates(DATA/'updates')
 LOG = logging.getLogger('abyss')
 LOG.setLevel(logging.INFO)
 _handler = RotatingFileHandler(DATA/'app.log',maxBytes=1_000_000,backupCount=3,encoding='utf-8')
@@ -49,6 +66,7 @@ class App:
         self.download_cancels = set()
         self.download_workers = []
         self.update_dialog = None
+        self.installing = False
         self.previous_keys = (False,False)
         self.windows = []
         self.settings_path = DATA/'settings.json'
@@ -68,6 +86,11 @@ class App:
         self.log('마비노기 모바일을 창 모드로 실행하고 게임 창 자동 맞추기를 누르세요. F9를 누르면 즉시 중지합니다.')
         root.after(100,self.pump)
         root.after(1600,self.update_check)
+        if '--update-ready' in sys.argv:
+            ready=Path(sys.argv[sys.argv.index('--update-ready')+1]).resolve()
+            if ready.parent.parent==(DATA/'updates').resolve() and ready.parent.name.startswith('session-'):
+                root.after(300,lambda:ready.write_text(json.dumps({'ok':True,'version':VERSION}),encoding='utf-8'))
+                if '--update-test-exit' in sys.argv:root.after(1200,self.close)
 
     def style(self):
         s = ttk.Style()
@@ -188,7 +211,7 @@ class App:
         messagebox.showerror('자동 창 맞추기 진단',str(error)+'\n\n상세 정보는 기록 폴더의 app.log에 저장했습니다.',parent=self.root)
 
     def resize(self):
-        if self.running or self.sizing_busy:return
+        if self.running or self.sizing_busy or self.installing or self.closing:return
         hwnd=None
         try:
             self.refresh();hwnd=self.selected()
@@ -249,7 +272,7 @@ class App:
         self.stop_button.configure(state='normal' if running else 'disabled')
 
     def start(self):
-        if self.running or self.sizing_busy:return
+        if self.running or self.sizing_busy or self.installing or self.closing:return
         try:
             self.refresh()
             hwnd=self.selected()
@@ -328,42 +351,54 @@ class App:
             try:self.events.put(('update',(check_update(),manual,None)))
             except Exception as e:self.events.put(('update',(None,manual,str(e))))
         threading.Thread(target=check,daemon=True).start()
-        if not manual:self.root.after(30*60*1000,self.update_check)
+        if not manual:self.root.after(5*60*1000,self.update_check)
 
     def show_update(self,result):
         if self.update_dialog and self.update_dialog.winfo_exists():
             self.update_dialog.lift();return
-        dialog=tk.Toplevel(self.root);dialog.title('새 업데이트 다운로드');dialog.geometry('620x600');dialog.configure(bg=BG)
+        if self.root.state()=='iconic':self.root.deiconify()
+        dialog=tk.Toplevel(self.root);dialog.title('업데이트가 필요합니다');dialog.geometry('620x600');dialog.configure(bg=BG)
         self.update_dialog=dialog
         dialog.transient(self.root)
         frame=ttk.Frame(dialog,padding=24);frame.pack(fill='both',expand=True)
-        ttk.Label(frame,text='새 버전이 도착했어요',font=('맑은 고딕',20,'bold')).pack(anchor='w')
+        ttk.Label(frame,text='업데이트가 필요합니다',font=('맑은 고딕',20,'bold')).pack(anchor='w')
         ttk.Label(frame,text=f"현재 v{VERSION}  →  {result['version']}",foreground=ACCENT).pack(anchor='w',pady=12)
         text=tk.Text(frame,bg='#09101b',fg=TEXT,relief='flat',wrap='word',font=('맑은 고딕',10),padx=12,pady=12)
         text.insert('1.0',result['notes']);text.configure(state='disabled');text.pack(fill='both',expand=True,pady=(0,12))
         progress=ttk.Progressbar(frame,mode='determinate',maximum=100);progress.pack(fill='x')
-        status=tk.StringVar(value='새 버전을 앱에서 바로 다운로드할 수 있습니다.')
+        status=tk.StringVar(value='업데이트 버튼을 누르면 새 버전을 설치하고 자동으로 다시 실행합니다.')
         ttk.Label(frame,textvariable=status,wraplength=560).pack(anchor='w',pady=(6,8))
-        ttk.Label(frame,text='저장 후 현재 앱을 종료하고 새 실행 파일을 실행하세요.',style='Muted.TLabel').pack(anchor='w')
+        ttk.Label(frame,text='업데이트 중 매크로가 중지됩니다. 설정은 유지됩니다.',style='Muted.TLabel').pack(anchor='w')
         row=ttk.Frame(frame);row.pack(fill='x',pady=(15,0))
         events=queue.Queue()
         cancel=threading.Event()
-        state={'busy':False,'saved':None}
+        state={'busy':False,'saved':None,'session':None}
         def close_dialog():
-            cancel.set();dialog.destroy()
+            cancel.set()
+            if state['session']:shutil.rmtree(state['session'],ignore_errors=True)
+            dialog.destroy()
         dialog.protocol('WM_DELETE_WINDOW',close_dialog)
-        def start_download():
-            if state['busy']:return
-            downloads=Path.home()/'Downloads'
-            initial=downloads if downloads.is_dir() else Path.home()
-            filename=filedialog.asksaveasfilename(parent=dialog,title='새 버전 저장',initialdir=str(initial),
-                initialfile='AbyssHelper-'+result['version']+'.exe',defaultextension='.exe',filetypes=[('Windows 실행 파일','*.exe')])
-            if not filename:return
-            destination=Path(filename)
-            if getattr(sys,'frozen',False) and destination.resolve()==Path(sys.executable).resolve():
-                messagebox.showinfo('저장 위치','실행 중인 앱과 다른 파일명으로 저장하세요.',parent=dialog);return
+        def start_download(auto=True):
+            if state['busy'] or self.installing:return
+            session=None
+            if auto and not getattr(sys,'frozen',False):
+                messagebox.showinfo('자동 업데이트','자동 교체는 배포된 EXE에서 사용할 수 있습니다. 파일만 받기를 이용하세요.',parent=dialog);return
+            if auto:
+                session=DATA/'updates'/('session-'+uuid.uuid4().hex)
+                session.mkdir(parents=True);state['session']=session
+                destination=session/'new.exe'
+                self.stop()
+            else:
+                downloads=Path.home()/'Downloads'
+                initial=downloads if downloads.is_dir() else Path.home()
+                filename=filedialog.asksaveasfilename(parent=dialog,title='새 버전 저장',initialdir=str(initial),
+                    initialfile='AbyssHelper-'+result['version']+'.exe',defaultextension='.exe',filetypes=[('Windows 실행 파일','*.exe')])
+                if not filename:return
+                destination=Path(filename)
+                if getattr(sys,'frozen',False) and destination.resolve()==Path(sys.executable).resolve():
+                    messagebox.showinfo('저장 위치','실행 중인 앱과 다른 파일명으로 저장하세요.',parent=dialog);return
             cancel.clear();state['busy']=True;self.download_cancels.add(cancel)
-            download_button.configure(state='disabled');cancel_button.configure(state='normal')
+            download_button.configure(state='disabled');file_button.configure(state='disabled');cancel_button.configure(state='normal')
             folder_button.configure(state='disabled');progress['value']=0
             status.set('다운로드 연결 중…')
             def worker():
@@ -375,10 +410,19 @@ class App:
                         events.put(('progress',(done,total)));last=now
                 try:
                     path=download_release(result,destination,report,cancel)
-                    events.put(('done',path))
-                except DownloadCancelled:events.put(('cancelled',None))
+                    if cancel.is_set():raise DownloadCancelled()
+                    if auto:
+                        plan=prepare_install(path,sys.executable,result['version'],os.getpid())
+                        if cancel.is_set():raise DownloadCancelled()
+                        events.put(('install_ready',plan))
+                    else:events.put(('done',path))
+                except DownloadCancelled:
+                    if session:shutil.rmtree(session,ignore_errors=True)
+                    events.put(('cancelled',None))
                 except Exception as e:
-                    LOG.exception('Update download failed');events.put(('error',str(e)))
+                    LOG.exception('Update download failed')
+                    if session:shutil.rmtree(session,ignore_errors=True)
+                    events.put(('error',str(e)))
             self.download_workers=[t for t in self.download_workers if t.is_alive()]
             thread=threading.Thread(target=worker,daemon=True)
             self.download_workers.append(thread);thread.start()
@@ -393,19 +437,33 @@ class App:
                     status.set(f'{100*done/total:.0f}%  ·  {done/1048576:.1f} / {total/1048576:.1f} MB')
                 else:
                     state['busy']=False;self.download_cancels.discard(cancel)
-                    download_button.configure(state='normal');cancel_button.configure(state='disabled')
-                    if kind=='done':
+                    download_button.configure(state='normal');file_button.configure(state='normal');cancel_button.configure(state='disabled')
+                    if kind=='install_ready':
+                        if cancel.is_set():
+                            shutil.rmtree(Path(value).parent,ignore_errors=True);status.set('업데이트를 취소했습니다.');continue
+                        try:
+                            self.installing=True
+                            launch_installer(value)
+                            status.set('설치 및 재실행 중…');self.log('업데이트 파일 확인 완료 — 앱을 종료하고 교체합니다.')
+                            self.close();return
+                        except Exception as e:
+                            self.installing=False;status.set('업데이트 시작 실패: '+str(e));LOG.exception('Installer launch failed')
+                    elif kind=='done':
                         state['saved']=value;progress['value']=100
                         status.set('다운로드 완료: '+str(value));folder_button.configure(state='normal')
                         self.log('새 버전 다운로드 완료: '+str(value))
                     elif kind=='cancelled':status.set('다운로드를 취소했습니다. 다시 시도할 수 있습니다.')
                     else:status.set('다운로드 실패: '+value)
             dialog.after(100,poll)
-        download_button=ttk.Button(row,text='새 버전 다운로드',style='Start.TButton',command=start_download);download_button.pack(side='left')
+        download_button=ttk.Button(row,text='업데이트',style='Start.TButton',command=start_download);download_button.pack(side='left')
         folder_button=ttk.Button(row,text='저장 폴더 열기',state='disabled',command=lambda:os.startfile(state['saved'].parent));folder_button.pack(side='left',padx=8)
         cancel_button=ttk.Button(row,text='취소',state='disabled',command=cancel.set);cancel_button.pack(side='left')
         ttk.Button(row,text='닫기',command=close_dialog).pack(side='right')
+        file_button=ttk.Button(frame,text='설치하지 않고 파일만 받기',command=lambda:start_download(False));file_button.pack(anchor='w',pady=(8,0))
         ttk.Button(frame,text='GitHub 배포 페이지',command=lambda:webbrowser.open(result['url']) if release_url(result['url']) else None).pack(anchor='w',pady=(8,0))
+        dialog.lift()
+        dialog.attributes('-topmost',True)
+        dialog.after(2000,lambda:dialog.attributes('-topmost',False) if dialog.winfo_exists() else None)
         dialog.after(100,poll)
 
     def pump(self):
@@ -425,11 +483,13 @@ class App:
                     self.update_text.set('업데이트 연결 실패 · 재시도 가능')
                     if manual:messagebox.showinfo('업데이트 확인','연결을 확인하고 다시 시도하세요.\n'+error,parent=self.root)
                 elif result:
-                    self.update_text.set(result['version']+' 업데이트 있음')
+                    self.update_text.set(result['version']+' 업데이트 필요')
+                    self.update_button.configure(text='업데이트',command=lambda r=result:self.show_update(r))
                     if manual or result['version'] not in self.seen_updates:
                         self.seen_updates.add(result['version']);self.show_update(result)
                 else:
                     self.update_text.set('현재 배포 버전 확인 완료 · v'+VERSION)
+                    self.update_button.configure(text='업데이트 확인',command=lambda:self.update_check(True))
                     if manual:messagebox.showinfo('업데이트 확인','현재 버전보다 새로운 정식 배포가 없습니다.',parent=self.root)
         keys=self.win.keys()
         if keys[1] and not self.previous_keys[1]:self.stop()
