@@ -4,6 +4,7 @@ import ctypes as C
 from ctypes import wintypes as W
 from game_identity import is_game_window
 from window_sizing import covers_monitor, fit_position
+from privileges import process_elevated
 
 
 def dpi_aware():
@@ -15,7 +16,15 @@ def dpi_aware():
 
 
 class WindowError(RuntimeError):
-    pass
+    def __init__(self,message,winerror=None):
+        super().__init__(message)
+        self.winerror=winerror
+
+
+class PermissionRequired(WindowError):
+    def __init__(self,rights):
+        super().__init__('게임은 관리자 권한이며 현재 앱은 일반 권한입니다. 앱을 관리자 권한으로 다시 실행하세요.',winerror=5)
+        self.rights=rights
 
 
 class Windows:
@@ -102,6 +111,17 @@ class Windows:
             raise WindowError('게임 화면 위치를 읽지 못했습니다.')
         return (p.x,p.y,r.right,r.bottom)
 
+    def permission_status(self,hwnd=None):
+        pid=W.DWORD()
+        if hwnd:self.u.GetWindowThreadProcessId(hwnd,C.byref(pid))
+        return {'app_admin':process_elevated(),'game_admin':process_elevated(pid.value) if pid.value else None}
+
+    def require_control_permission(self,hwnd):
+        rights=self.permission_status(hwnd)
+        if rights['app_admin'] is False and rights['game_admin'] is True:
+            raise PermissionRequired(rights)
+        return rights
+
     def monitor_info(self, hwnd):
         class MONITORINFO(C.Structure):
             _fields_ = [('cbSize',W.DWORD),('rcMonitor',W.RECT),('rcWork',W.RECT),('dwFlags',W.DWORD)]
@@ -122,10 +142,12 @@ class Windows:
         box=(outer.left,outer.top,outer.right,outer.bottom)
         return {'title':title,'executable':path,'client':[client.right,client.bottom],
                 'outer':box,'style':hex(style),'dpi':dpi,'monitor':monitor,'work':work,
-                'fullscreen_like':covers_monitor(box,monitor),'minimized':bool(self.u.IsIconic(hwnd))}
+                'fullscreen_like':covers_monitor(box,monitor),'minimized':bool(self.u.IsIconic(hwnd)),
+                'permissions':self.permission_status(hwnd)}
 
     def prepare_resize(self, hwnd):
         self.ensure_game(hwnd)
+        self.require_control_permission(hwnd)
         self.u.ShowWindow(hwnd,9)
         info=self.diagnostics(hwnd)
         if info['fullscreen_like']:
@@ -156,6 +178,7 @@ class Windows:
 
     def make_windowed(self, hwnd, borderless=False):
         self.ensure_game(hwnd)
+        self.require_control_permission(hwnd)
         self.u.ShowWindow(hwnd,9)
         style=self.u.GetWindowLongW(hwnd,-16)&0xffffffff
         # A borderless/pop-up window needs a frame change, not just SetWindowPos.
@@ -166,14 +189,15 @@ class Windows:
         previous=self.u.SetWindowLongW(hwnd,-16,C.c_long(desired).value)
         error=C.get_last_error()
         if not previous and error:
-            raise WindowError(f'창 모드 스타일 적용 실패 (Windows 오류 {error}). 게임과 앱의 실행 권한을 확인하세요.')
+            raise WindowError(f'창 모드 스타일 적용 실패 (Windows 오류 {error}). 게임과 앱의 실행 권한을 확인하세요.',winerror=error)
         if not self.u.SetWindowPos(hwnd,None,0,0,0,0,0x0001|0x0002|0x0004|0x0010|0x0020):
             error=C.get_last_error()
             self.u.SetWindowLongW(hwnd,-16,C.c_long(style).value)
-            raise WindowError(f'창 테두리 전환 실패 (Windows 오류 {error}).')
+            raise WindowError(f'창 테두리 전환 실패 (Windows 오류 {error}).',winerror=error)
 
     def resize(self, hwnd, correction=False):
         self.ensure_game(hwnd)
+        self.require_control_permission(hwnd)
         self.u.ShowWindow(hwnd,9)
         style=self.u.GetWindowLongW(hwnd,-16)
         exstyle=self.u.GetWindowLongW(hwnd,-20)
@@ -210,7 +234,7 @@ class Windows:
         except ValueError as e:raise WindowError(str(e)) from e
         if not self.u.SetWindowPos(hwnd,None,x,y,width,height,0x0004|0x0010):
             error=C.get_last_error()
-            raise WindowError(f'창 크기 적용 실패 (Windows 오류 {error}). 게임이 크기 변경을 제한하거나 실행 권한이 다를 수 있습니다.')
+            raise WindowError(f'창 크기 적용 실패 (Windows 오류 {error}). 게임이 크기 변경을 제한하거나 실행 권한이 다를 수 있습니다.',winerror=error)
 
     def active(self, hwnd):
         current = self.u.GetForegroundWindow()
@@ -220,8 +244,9 @@ class Windows:
         return (bool(self.u.GetAsyncKeyState(0x77)&0x8000), bool(self.u.GetAsyncKeyState(0x78)&0x8000))
 
     def click(self, hwnd, point):
-        # Recheck identity, foreground, client size and visibility before every click.
+        # Recheck identity, rights and foreground before every click.
         self.ensure_game(hwnd)
+        self.require_control_permission(hwnd)
         if not self.active(hwnd):
             raise WindowError('게임 창이 앞에 있지 않아 입력을 보류했습니다.')
         left,top,width,height = self.rect(hwnd)

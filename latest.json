@@ -1,7 +1,7 @@
 {
-  "version": "1.0.4",
-  "title": "업데이트 알림 및 버튼 한 번으로 자동 교체·재실행",
-  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.0.4",
-  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.0.4/AbyssHelper.exe",
-  "notes": "업데이트 필요 알림, 자동 다운로드·교체·재실행, 시작 확인 실패 시 이전 파일 복구, 설정 유지"
+  "version": "1.0.5",
+  "title": "필요한 권한 알림 및 관리자 권한 재실행 안내",
+  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.0.5",
+  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.0.5/AbyssHelper.exe",
+  "notes": "앱·게임 권한 확인, 오류 5 원인 안내, 관리자 권한 재실행 버튼과 UAC 안내, 폴더 쓰기 권한 구분"
 }

@@ -35,6 +35,7 @@ from PIL import Image, ImageTk
 from engine import Controller, Observation, State
 from vision import Vision, DUNGEONS, DIFFICULTIES
 from windows import Windows, WindowError
+from privileges import permission_advice, relaunch_admin, process_elevated
 from updates import check_update, release_url, download_release, DownloadCancelled
 from version import VERSION, REPOSITORY
 from installer import prepare_install, launch_installer, cleanup_updates
@@ -66,6 +67,7 @@ class App:
         self.download_cancels = set()
         self.download_workers = []
         self.update_dialog = None
+        self.permission_dialog = None
         self.installing = False
         self.previous_keys = (False,False)
         self.windows = []
@@ -83,7 +85,8 @@ class App:
         self.style()
         self.build()
         self.refresh()
-        self.log('마비노기 모바일을 창 모드로 실행하고 게임 창 자동 맞추기를 누르세요. F9를 누르면 즉시 중지합니다.')
+        self.log('v'+VERSION+' / 앱 관리자 권한: '+str(process_elevated()))
+        self.log('게임 창 자동 맞추기 또는 시작을 누르면 필요한 권한을 확인합니다. 권한 확인 버튼으로도 볼 수 있습니다.')
         root.after(100,self.pump)
         root.after(1600,self.update_check)
         if '--update-ready' in sys.argv:
@@ -163,6 +166,7 @@ class App:
         self.update_text=tk.StringVar(value='GitHub 업데이트 안내 연결됨')
         ttk.Label(bottom,textvariable=self.update_text,style='Muted.TLabel').pack(side='left')
         self.update_button=ttk.Button(bottom,text='업데이트 확인',command=lambda:self.update_check(True));self.update_button.pack(side='right')
+        ttk.Button(bottom,text='권한 확인',command=self.check_permissions).pack(side='right',padx=(0,8))
 
     def destination_changed(self,_=None):
         self.difficulty.set({'허상의 정박지':'매우 어려움','광기의 동굴':'어려움','흩어진 물길':'입문'}[self.dungeon.get()])
@@ -197,6 +201,64 @@ class App:
         self.win.ensure_game(hwnd)
         return hwnd
 
+    def check_permissions(self):
+        hwnd=None
+        try:
+            self.refresh();hwnd=self.selected()
+        except WindowError:pass
+        self.show_permission_notice('게임 조작',hwnd=hwnd)
+
+    def show_permission_notice(self,operation,error=None,hwnd=None,file_access=False):
+        if self.permission_dialog and self.permission_dialog.winfo_exists():
+            self.permission_dialog.lift();return
+        rights=getattr(error,'rights',None)
+        if rights is None:
+            try:rights=self.win.permission_status(hwnd)
+            except Exception:rights={'app_admin':process_elevated(),'game_admin':None}
+        code=getattr(error,'winerror',None)
+        advice=permission_advice(operation,rights['app_admin'],rights['game_admin'],code,file_access)
+        self.log('권한 안내: '+advice['levels']+' / '+operation+((' / '+str(error)) if error else ''))
+        dialog=tk.Toplevel(self.root);self.permission_dialog=dialog
+        dialog.title(advice['title']);dialog.geometry('630x510');dialog.configure(bg=BG);dialog.transient(self.root)
+        frame=ttk.Frame(dialog,padding=24);frame.pack(fill='both',expand=True)
+        ttk.Label(frame,text=advice['title'],font=('맑은 고딕',18,'bold')).pack(anchor='w')
+        ttk.Label(frame,text=advice['levels'],foreground=ACCENT).pack(anchor='w',pady=(12,10))
+        text=tk.Text(frame,bg='#09101b',fg=TEXT,relief='flat',wrap='word',font=('맑은 고딕',10),padx=12,pady=12)
+        text.insert('1.0',advice['message'])
+        if error:text.insert('end','\n\n작업: '+operation+'\n오류: '+str(error))
+        text.configure(state='disabled');text.pack(fill='both',expand=True,pady=(0,15))
+        row=ttk.Frame(frame);row.pack(fill='x')
+        if advice['can_elevate'] and getattr(sys,'frozen',False):
+            ttk.Button(row,text='관리자 권한으로 다시 실행',style='Start.TButton',command=self.restart_as_admin).pack(side='left')
+        ttk.Button(row,text='기록 폴더 열기',command=lambda:os.startfile(DATA)).pack(side='left',padx=8)
+        ttk.Button(row,text='닫기',command=dialog.destroy).pack(side='right')
+        dialog.lift()
+
+    def show_operation_error(self,title,error,hwnd=None):
+        if getattr(error,'winerror',None)==5:
+            self.show_permission_notice(title,error,hwnd)
+        elif isinstance(error,PermissionError):
+            self.show_permission_notice(title,error,hwnd,file_access=True)
+        else:
+            messagebox.showerror(title,str(error)+'\n\n상세 정보는 기록 폴더의 app.log를 확인하세요.',parent=self.root)
+
+    def restart_as_admin(self):
+        if not getattr(sys,'frozen',False):return
+        try:
+            if process_elevated() is True:
+                messagebox.showinfo('권한 확인','현재 앱은 이미 관리자 권한입니다.',parent=self.root);return
+            self.stop()
+            self.settings={'dungeon':self.dungeon.get(),'difficulty':self.difficulty.get(),'repeat':self.repeat.get(),'food':self.food.get()}
+            self.settings_path.write_text(json.dumps(self.settings,ensure_ascii=False,indent=2),encoding='utf-8')
+            if relaunch_admin(sys.executable):
+                self.log('Windows 관리자 권한 재실행이 승인되어 현재 앱을 종료합니다.');self.close()
+            else:
+                self.log('사용자가 Windows 권한 승인을 취소했습니다. 현재 앱을 유지합니다.')
+                messagebox.showinfo('권한 요청 취소','Windows 권한 승인이 취소되어 현재 앱을 그대로 유지합니다.',parent=self.root)
+        except OSError as e:
+            self.log('관리자 권한 재실행 실패: '+str(e))
+            messagebox.showerror('재실행 실패',str(e)+'\n앱 EXE를 우클릭 → 관리자 권한으로 실행을 선택해 주세요.',parent=self.root)
+
     def sizing_finished(self):
         self.sizing_busy=False
         self.resize_button.configure(state='normal')
@@ -208,7 +270,7 @@ class App:
         self.log('창 맞춤 실패: '+str(error))
         self.detail.set('창 맞추기 실패 — 기록에서 원인을 확인하세요.')
         self.sizing_finished()
-        messagebox.showerror('자동 창 맞추기 진단',str(error)+'\n\n상세 정보는 기록 폴더의 app.log에 저장했습니다.',parent=self.root)
+        self.show_operation_error('자동 창 맞추기',error,hwnd)
 
     def resize(self):
         if self.running or self.sizing_busy or self.installing or self.closing:return
@@ -277,10 +339,11 @@ class App:
         try:
             self.refresh()
             hwnd=self.selected()
+            self.win.require_control_permission(hwnd)
             _,_,w,h=self.win.rect(hwnd)
             if (w,h)!=(800,1000):raise WindowError(f'실제 화면이 {w}×{h}입니다. 먼저 게임 창 자동 맞추기를 누르세요.')
         except WindowError as e:
-            messagebox.showerror('시작할 수 없음',str(e),parent=self.root);return
+            self.show_operation_error('매크로 시작',e,locals().get('hwnd'));return
         self.settings={'dungeon':self.dungeon.get(),'difficulty':self.difficulty.get(),'repeat':self.repeat.get(),'food':self.food.get()}
         self.settings_path.write_text(json.dumps(self.settings,ensure_ascii=False,indent=2),encoding='utf-8')
         self.running=True;self.stop_event.clear();self.lock_controls(True)
@@ -342,7 +405,7 @@ class App:
                     self.stop_event.wait(.25)
         except Exception as e:
             LOG.exception('Worker stopped')
-            self.events.put(('error',str(e)))
+            self.events.put(('error',(e,hwnd)))
         finally:self.events.put(('stopped',None))
 
     def update_check(self,manual=False):
@@ -427,7 +490,7 @@ class App:
                 except Exception as e:
                     LOG.exception('Update download failed')
                     if session:shutil.rmtree(session,ignore_errors=True)
-                    events.put(('error',str(e)))
+                    events.put(('error',e))
             self.download_workers=[t for t in self.download_workers if t.is_alive()]
             thread=threading.Thread(target=worker,daemon=True)
             self.download_workers.append(thread);thread.start()
@@ -462,7 +525,10 @@ class App:
                         status.set('다운로드 완료: '+str(value));folder_button.configure(state='normal')
                         self.log('새 버전 다운로드 완료: '+str(value))
                     elif kind=='cancelled':status.set('다운로드를 취소했습니다. 다시 시도할 수 있습니다.')
-                    else:status.set('다운로드 실패: '+value)
+                    else:
+                        status.set('다운로드 실패: '+str(value))
+                        if isinstance(value,PermissionError) or '쓰기 권한' in str(value):
+                            self.show_permission_notice('업데이트 파일 저장',value,file_access=True)
             dialog.after(100,poll)
         download_button=ttk.Button(row,text='업데이트',style='Start.TButton',command=start_download);download_button.pack(side='left')
         folder_button=ttk.Button(row,text='저장 폴더 열기',state='disabled',command=lambda:os.startfile(state['saved'].parent));folder_button.pack(side='left',padx=8)
@@ -482,7 +548,8 @@ class App:
             except queue.Empty:break
             if kind=='log':self.log(value)
             elif kind=='status':self.status.set(value[0]);self.detail.set(value[1])
-            elif kind=='error':self.log(value);messagebox.showerror('실행 중지',value,parent=self.root)
+            elif kind=='error':
+                error,hwnd=value;self.log(str(error));self.show_operation_error('게임 조작',error,hwnd)
             elif kind=='stopped':
                 self.running=False;self.lock_controls(False)
                 if self.status.get()!='확인 필요':self.status.set('중지됨')
@@ -543,6 +610,8 @@ if __name__=='__main__':
         app.show_update({'version':'v99.0.0','url':'https://github.com/'+REPOSITORY+'/releases/tag/v99.0.0','notes':'업데이트 다운로드 UI 검사','asset':{}})
         root.update_idletasks()
         app.update_dialog.destroy()
+        app.show_permission_notice('게임 조작')
+        root.update_idletasks();app.permission_dialog.destroy()
         report={'ok':True,'version':VERSION,'templates':len(detector.data),'ui':'created','platform':sys.platform}
         out=Path(sys.argv[sys.argv.index('--report')+1])
         out.write_text(json.dumps(report),encoding='utf-8')

@@ -64,3 +64,15 @@ def test_native_borderless_conversion(monkeypatch,native_root):
         info=win.diagnostics(hwnd)
         assert 'dpi' in info and 'work' in info and 'fullscreen_like' in info
     finally:root.destroy()
+
+
+def test_native_elevation_read_and_preflight_block(monkeypatch,native_root):
+    from windows import Windows,PermissionRequired
+    from privileges import process_elevated
+    import os
+    assert type(process_elevated()) is bool
+    assert process_elevated(os.getpid())==process_elevated()
+    win=Windows()
+    monkeypatch.setattr(win,'permission_status',lambda _:{'app_admin':False,'game_admin':True})
+    with pytest.raises(PermissionRequired) as error:win.require_control_permission(0)
+    assert error.value.winerror==5
