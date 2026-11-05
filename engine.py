@@ -28,6 +28,7 @@ class Observation:
     encounter: bool | None = None
     still: bool = False
     food: bool = False
+    motion_note: str = ''
 
 
 @dataclass(frozen=True)

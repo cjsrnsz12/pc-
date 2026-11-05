@@ -6,6 +6,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 from engine import Observation
+from motion import Stillness
 
 DUNGEONS = {'허상의 정박지': 'harbor', '광기의 동굴': 'cave', '흩어진 물길': 'water'}
 DIFFICULTIES = ['입문', '어려움', '매우 어려움', '매우 어려움2']
@@ -20,26 +21,6 @@ class Hit:
     def center(self):
         x, y, w, h = self.box
         return (x + w // 2, y + h // 2)
-
-
-class Stillness:
-    def __init__(self):
-        self.previous = None
-
-    def reset(self):
-        self.previous = None
-
-    def update(self, frame):
-        gray = cv2.GaussianBlur(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), (9, 9), 0)
-        patches = [(260, 390, 340, 620), (465, 390, 560, 620), (350, 605, 460, 655)]
-        previous, self.previous = self.previous, gray
-        if previous is None:
-            return False
-        changes = []
-        for x1, y1, x2, y2 in patches:
-            a, b = previous[y1:y2, x1:x2], gray[y1:y2, x1:x2]
-            changes.append(float(np.mean(cv2.absdiff(a, b) > 15)))
-        return max(changes[:2]) < .035 and changes[2] < .09
 
 
 class Vision:
@@ -89,6 +70,21 @@ class Vision:
         else:
             mask = (h > 75) & (h < 125) & (s > 100) & (v > 100)
         return float(np.mean(mask))
+
+    @staticmethod
+    def combat_hud(frame):
+        # World objects alone must not latch the entire run into combat.
+        gray=cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY)
+        circles=cv2.HoughCircles(gray[820:940,160:640],cv2.HOUGH_GRADIENT,1.3,48,param1=100,param2=26,minRadius=23,maxRadius=44)
+        if circles is None:return False
+        hsv=cv2.cvtColor(frame[825:925,170:625],cv2.COLOR_BGR2HSV)
+        yy,xx=np.indices(hsv.shape[:2]);colored=(hsv[:,:,1]>100)&(hsv[:,:,2]>120)&(((hsv[:,:,0]>70)&(hsv[:,:,0]<125))|((hsv[:,:,0]>10)&(hsv[:,:,0]<40)))
+        matched=0
+        for slot in (215,287,360,434,506,578):
+            aligned=any(abs(float(x)+160-slot)<=17 and abs(float(y)+820-873)<=18 for x,y,r in circles[0])
+            radius=np.sqrt((xx+170-slot)**2+(yy+825-873)**2);ring=(radius>28)&(radius<39)
+            if aligned and np.mean(colored[ring])>.07:matched+=1
+        return matched>=4
 
     def observe(self, frame, dungeon, difficulty):
         self.frame = cv2.resize(frame, (800, 1000))
@@ -161,14 +157,11 @@ class Vision:
             food = self.hit('food')
             if food:
                 p['food'] = food.center
-            # Combat skill row contains several bright circular rims; the field does not.
-            crop = self.gray[820:940,160:640]
-            circles = cv2.HoughCircles(crop,cv2.HOUGH_GRADIENT,1.3,48,param1=100,param2=26,minRadius=23,maxRadius=44)
-            combat = circles is not None and len(circles[0]) >= 3
+            combat=self.combat_hud(self.frame)
             if not combat and not menu:
                 self.stillness.reset()
                 return Observation()
             still = self.stillness.update(self.frame)
-            return Observation('combat' if combat else 'field',p,still=still,food=bool(food))
+            return Observation('combat' if combat else 'field',p,still=still,food=bool(food),motion_note=self.stillness.note)
         self.stillness.reset()
         return Observation()

@@ -25,7 +25,9 @@ def test_clear_needs_both_texts():
 
 def test_stillness_ignores_chat_but_resets_for_ground_movement():
     rng=np.random.default_rng(5)
-    frame=rng.integers(0,256,(1000,800,3),np.uint8)
+    # Stone-like grayscale texture; saturated random RGB would be masked as labels/effects.
+    texture=rng.integers(30,140,(1000,800),np.uint8)
+    frame=cv2.cvtColor(texture,cv2.COLOR_GRAY2BGR)
     s=Stillness()
     assert not s.update(frame)
     assert s.update(frame)

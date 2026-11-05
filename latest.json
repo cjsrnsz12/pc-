@@ -1,7 +1,7 @@
 {
-  "version": "1.0.12",
-  "title": "작은 업데이트 확인창 및 둥근 스크롤바",
-  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.0.12",
-  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.0.12/AbyssHelper.exe",
-  "notes": "지금 업데이트·업데이트 내용·나중에 별도 창, 설치 버튼 하단 고정, 둥근 스크롤바와 화면 맞춤"
+  "version": "1.0.13",
+  "title": "혼잡한 장소의 시작 정지 판정 개선",
+  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.0.13",
+  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.0.13/AbyssHelper.exe",
+  "notes": "이름표·주변 캐릭터 변화 제외, 배경·미니맵 이동 확인, 잘못된 전투 UI 판정 보완, 정지 4초 유지"
 }

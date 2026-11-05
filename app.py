@@ -402,6 +402,7 @@ class App:
             controller=Controller(config['dungeon'],config['difficulty'],config['repeat'])
             last_screen,streak,food_streak='',0,0
             paused_at=None;last_status=None;unknown_since=None;warned=False
+            motion_log_state=None;motion_log_at=-999.
             with mss.mss() as capture:
                 while not self.stop_event.is_set():
                     now=time.monotonic()
@@ -436,6 +437,12 @@ class App:
                     else:unknown_since=None;warned=False
                     action=controller.step(observation,now) if streak>=2 else None
                     status=(controller.state.value,controller.reason or ('감지: '+{'unknown':'화면 확인 중','field':'일반 화면','combat':'전투','detail':'입장 설정','matching':'우연한 만남 대기','loading':'로딩','cutscene':'보스 연출','reward':'보상','mission':'협동 미션','clear':'던전 클리어','menu':'메뉴','list':'어비스 목록'}.get(observation.screen,observation.screen)))
+                    if observation.screen=='field' and controller.state==State.IDLE:
+                        status=(status[0],status[1]+' / '+observation.motion_note)
+                        motion_mode=observation.motion_note.split('(')[0]
+                        if motion_mode!=motion_log_state and now-motion_log_at>2:
+                            self.events.put(('log','시작 전 정지 판정: '+observation.motion_note))
+                            motion_log_state=motion_mode;motion_log_at=now
                     if status!=last_status:self.events.put(('status',status));last_status=status
                     if action and not self.stop_event.is_set():
                         self.win.click(hwnd,action.point)
