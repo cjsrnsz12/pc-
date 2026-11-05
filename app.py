@@ -126,6 +126,8 @@ class App:
         s.configure('Stop.TButton',foreground='#ffacb5')
         s.configure('TCombobox',fieldbackground='#263550',background='#263550',foreground=TEXT,padding=7,arrowcolor=TEXT)
         s.map('TCombobox',fieldbackground=[('disabled','#182237'),('readonly','#263550'),('active','#263550')],background=[('disabled','#182237'),('active','#30425e'),('!disabled','#263550')],foreground=[('disabled',MUTED),('readonly',TEXT)],bordercolor=[('focus','#7dd9cf'),('active','#7a6fc2'),('!disabled','#455577')],lightcolor=[('!disabled','#263550')],darkcolor=[('!disabled','#263550')],selectbackground=[('!disabled','#354e73')],selectforeground=[('!disabled',TEXT)])
+        s.configure('Vertical.TScrollbar',background='#314660',troughcolor=BG,bordercolor=BG,arrowcolor=MUTED,lightcolor='#314660',darkcolor='#314660',borderwidth=0,width=12)
+        s.map('Vertical.TScrollbar',background=[('pressed','#5e8aa8'),('active','#426381')],lightcolor=[('!disabled','#314660')],darkcolor=[('!disabled','#314660')],bordercolor=[('!disabled',BG)],arrowcolor=[('!disabled',MUTED)])
         s.configure('TCheckbutton',background=BG,foreground=TEXT,padding=5)
         s.map('TCheckbutton',background=[('disabled',BG),('active',BG),('!disabled',BG)],foreground=[('disabled','#8190aa'),('!disabled',TEXT)])
         root=self.root
@@ -143,7 +145,7 @@ class App:
         window=self.page_canvas.create_window(0,0,anchor='nw',window=page)
         page.bind('<Configure>',lambda _:self.page_canvas.configure(scrollregion=self.page_canvas.bbox('all')))
         self.page_canvas.bind('<Configure>',lambda e:self.page_canvas.itemconfigure(window,width=e.width))
-        self.root.bind_all('<MouseWheel>',self.scroll_page,add='+')
+        self.root.bind('<MouseWheel>',self.scroll_page,add='+')
         self.header=LauncherHeader(page,VERSION);self.header.pack(fill='x',pady=(0,18))
         card=ttk.Frame(page,style='Card.TFrame',padding=18);card.pack(fill='x')
         ttk.Label(card,text='●  CURRENT STATUS  /  현재 상태',style='Card.TLabel').pack(anchor='w')
@@ -190,6 +192,7 @@ class App:
         smooth_buttons(self.root)
 
     def scroll_page(self,event):
+        if not isinstance(event.widget,tk.Misc):return
         if event.widget.winfo_toplevel() is not self.root:return
         if isinstance(event.widget,(tk.Text,ttk.Combobox)):return
         self.page_canvas.yview_scroll(-int(event.delta/120),'units')

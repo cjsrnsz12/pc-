@@ -1,7 +1,7 @@
 {
-  "version": "1.0.9",
+  "version": "1.0.10",
   "title": "런처 테마·✓ 체크박스·부드러운 전환",
-  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.0.9",
-  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.0.9/AbyssHelper.exe",
+  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.0.10",
+  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.0.10/AbyssHelper.exe",
   "notes": "보라·민트 그라데이션과 전용 아이콘, 체크박스 흰 배경 수정, ✓ 표시와 버튼 전환 애니메이션"
 }
