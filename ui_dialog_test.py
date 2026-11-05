@@ -18,9 +18,11 @@ def exercise_update_dialogs(app,report_path):
         notice_state=Path(directory)/'release-notice.json'
         assert app.show_installed_changes(notice_state)
         installed=app.installed_notice;root.update()
-        assert '업데이트 내용' in installed.heading.cget('text')
+        assert installed.heading.cget('text')=='업데이트 소식'
         assert not installed.primary.winfo_ismapped() and not installed.file_button.winfo_ismapped()
-        assert installed.close_button.winfo_ismapped()
+        assert not installed.footer.winfo_ismapped() and not installed.close_button.winfo_ismapped()
+        assert installed.notes.winfo_ismapped()
+        assert installed.notes.tag_ranges('improvement') and installed.notes.tag_ranges('fix')
         assert not app.show_installed_changes(notice_state)
         installed.close();root.update()
         assert not app.show_installed_changes(notice_state)

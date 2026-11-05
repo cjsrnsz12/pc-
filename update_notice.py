@@ -86,7 +86,7 @@ class UpdateNotice:
         if self.phase in ('downloading','preparing','installing'):return
         self.release=release
         newer=release.get('is_new',True)
-        self.heading.configure(text='업데이트가 필요합니다' if newer else '최신 버전을 사용 중입니다')
+        self.heading.configure(text='업데이트 소식')
         self.version.configure(text=f"현재 v{VERSION}  →  {release['version']}" if newer else '현재 버전: '+release['version'])
         groups=release.get('changes') or grouped_changes(release.get('notes',''))
         self.notes.configure(state='normal');self.notes.delete('1.0','end')
@@ -99,11 +99,12 @@ class UpdateNotice:
         self.file_button.configure(state='normal')
         self.status.set('업데이트를 누르면 다운로드·설치 후 새 버전으로 다시 실행합니다.' if newer else '표시된 내용은 현재 최신 버전에 적용된 변경 사항입니다.')
         if release.get('installed_notice'):
-            self.dialog.title('업데이트 완료 · 변경 내용')
-            self.heading.configure(text=release['version']+' 업데이트 내용')
+            self.dialog.title('업데이트 소식')
+            self.heading.configure(text='업데이트 소식')
             self.status.set('이번 버전에 적용된 변경 사항입니다.')
             self.hint_label.configure(text='이 버전의 자동 안내는 이번 한 번만 표시합니다. X 또는 닫기로 닫을 수 있습니다.')
-            for control in (self.primary,self.cancel_button,self.file_button,self.folder_button,self.progress):control.pack_forget()
+            # First-launch notes are read-only: close via the title-bar X.
+            self.footer.pack_forget()
 
 
     def set_check_error(self,message):
