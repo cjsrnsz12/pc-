@@ -1,7 +1,7 @@
 {
-  "version": "1.0.6",
-  "title": "제목 표시줄 유지 및 권한 알림",
-  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.0.6",
-  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.0.6/AbyssHelper.exe",
-  "notes": "게임 이름·최소화·최대화·닫기 버튼 유지, 내용 영역 800×1000, 권한 안내·관리자 재실행 기능 포함"
+  "version": "1.0.7",
+  "title": "업데이트 알림창 및 버튼 반응 개선",
+  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.0.7",
+  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.0.7/AbyssHelper.exe",
+  "notes": "알림창 안의 업데이트 버튼, 최신 버전 내역만 색상별 표시, 숨겨진 창·진행 상태 복구 및 재시도"
 }

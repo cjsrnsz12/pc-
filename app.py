@@ -39,6 +39,7 @@ from privileges import permission_advice, relaunch_admin, process_elevated
 from updates import check_update, release_url, download_release, DownloadCancelled
 from version import VERSION, REPOSITORY
 from installer import prepare_install, launch_installer, cleanup_updates
+from update_notice import UpdateNotice
 
 BASE = Path(getattr(sys,'_MEIPASS',Path(__file__).resolve().parent))
 DATA = Path(os.getenv('LOCALAPPDATA', str(Path.home()))) / 'AbyssHelper'
@@ -67,6 +68,10 @@ class App:
         self.download_cancels = set()
         self.download_workers = []
         self.update_dialog = None
+        self.update_notice = None
+        self.install_owner = None
+        self.latest_release = None
+        self.update_manual_requested = False
         self.permission_dialog = None
         self.installing = False
         self.previous_keys = (False,False)
@@ -165,7 +170,7 @@ class App:
         bottom=ttk.Frame(page);bottom.pack(fill='x')
         self.update_text=tk.StringVar(value='GitHub 업데이트 안내 연결됨')
         ttk.Label(bottom,textvariable=self.update_text,style='Muted.TLabel').pack(side='left')
-        self.update_button=ttk.Button(bottom,text='업데이트 확인',command=lambda:self.update_check(True));self.update_button.pack(side='right')
+        self.update_button=ttk.Button(bottom,text='업데이트 소식',command=self.open_update_notice);self.update_button.pack(side='right')
         ttk.Button(bottom,text='권한 확인',command=self.check_permissions).pack(side='right',padx=(0,8))
 
     def destination_changed(self,_=None):
@@ -416,138 +421,38 @@ class App:
             self.events.put(('error',(e,hwnd)))
         finally:self.events.put(('stopped',None))
 
+    def open_update_notice(self):
+        if self.update_notice and not self.update_notice.closed and self.update_notice.phase in ('downloading','preparing','installing'):
+            self.update_notice.show();return
+        self.show_update(None)
+        self.update_notice.set_loading()
+        self.update_check(True)
+
     def update_check(self,manual=False):
-        if self.update_busy:return
+        self.update_manual_requested=self.update_manual_requested or manual
+        if manual:
+            if not self.update_notice or self.update_notice.closed:self.show_update(None)
+            self.update_notice.show();self.update_notice.set_loading()
+        if self.update_busy:
+            if self.update_notice and not self.update_notice.closed:self.update_notice.status.set('업데이트 정보를 확인 중입니다. 잠시 기다려 주세요.')
+            return
         self.update_busy=True;self.update_text.set('업데이트 확인 중…')
         def check():
-            try:self.events.put(('update',(check_update(),manual,None)))
-            except Exception as e:self.events.put(('update',(None,manual,str(e))))
+            try:self.events.put(('update',(check_update(include_current=True),None)))
+            except Exception as e:self.events.put(('update',(None,str(e))))
         threading.Thread(target=check,daemon=True).start()
         if not manual:self.root.after(5*60*1000,self.update_check)
 
-    def show_update(self,result):
-        if self.update_dialog and self.update_dialog.winfo_exists():
-            self.update_dialog.lift();return
-        if self.root.state()=='iconic':self.root.deiconify()
-        dialog=tk.Toplevel(self.root);dialog.title('업데이트가 필요합니다');dialog.geometry('620x600');dialog.configure(bg=BG)
-        self.update_dialog=dialog
-        dialog.transient(self.root)
-        frame=ttk.Frame(dialog,padding=24);frame.pack(fill='both',expand=True)
-        ttk.Label(frame,text='업데이트가 필요합니다',font=('맑은 고딕',20,'bold')).pack(anchor='w')
-        ttk.Label(frame,text=f"현재 v{VERSION}  →  {result['version']}",foreground=ACCENT).pack(anchor='w',pady=12)
-        text=tk.Text(frame,bg='#09101b',fg=TEXT,relief='flat',wrap='word',font=('맑은 고딕',10),padx=12,pady=12)
-        text.insert('1.0',result['notes']);text.configure(state='disabled');text.pack(fill='both',expand=True,pady=(0,12))
-        progress=ttk.Progressbar(frame,mode='determinate',maximum=100);progress.pack(fill='x')
-        status=tk.StringVar(value='업데이트 버튼을 누르면 새 버전을 설치하고 자동으로 다시 실행합니다.')
-        ttk.Label(frame,textvariable=status,wraplength=560).pack(anchor='w',pady=(6,8))
-        ttk.Label(frame,text='업데이트 중 매크로가 중지됩니다. 설정은 유지됩니다.',style='Muted.TLabel').pack(anchor='w')
-        row=ttk.Frame(frame);row.pack(fill='x',pady=(15,0))
-        events=queue.Queue()
-        cancel=threading.Event()
-        state={'busy':False,'saved':None,'session':None}
-        def close_dialog():
-            cancel.set()
-            if state['session']:
-                self.installing=False
-                self.start_button.configure(state='normal')
-                shutil.rmtree(state['session'],ignore_errors=True)
-            dialog.destroy()
-        dialog.protocol('WM_DELETE_WINDOW',close_dialog)
-        def start_download(auto=True):
-            if state['busy'] or self.installing:return
-            session=None
-            if auto and not getattr(sys,'frozen',False):
-                messagebox.showinfo('자동 업데이트','자동 교체는 배포된 EXE에서 사용할 수 있습니다. 파일만 받기를 이용하세요.',parent=dialog);return
-            if auto:
-                session=DATA/'updates'/('session-'+uuid.uuid4().hex)
-                session.mkdir(parents=True);state['session']=session
-                self.installing=True
-                destination=session/'new.exe'
-                self.stop()
-            else:
-                downloads=Path.home()/'Downloads'
-                initial=downloads if downloads.is_dir() else Path.home()
-                filename=filedialog.asksaveasfilename(parent=dialog,title='새 버전 저장',initialdir=str(initial),
-                    initialfile='AbyssHelper-'+result['version']+'.exe',defaultextension='.exe',filetypes=[('Windows 실행 파일','*.exe')])
-                if not filename:return
-                destination=Path(filename)
-                if getattr(sys,'frozen',False) and destination.resolve()==Path(sys.executable).resolve():
-                    messagebox.showinfo('저장 위치','실행 중인 앱과 다른 파일명으로 저장하세요.',parent=dialog);return
-            cancel.clear();state['busy']=True;self.download_cancels.add(cancel)
-            download_button.configure(state='disabled');file_button.configure(state='disabled');cancel_button.configure(state='normal')
-            folder_button.configure(state='disabled');progress['value']=0
-            status.set('다운로드 연결 중…')
-            def worker():
-                last=0.
-                def report(done,total):
-                    nonlocal last
-                    now=time.monotonic()
-                    if now-last>.1 or done==total:
-                        events.put(('progress',(done,total)));last=now
-                try:
-                    path=download_release(result,destination,report,cancel)
-                    if cancel.is_set():raise DownloadCancelled()
-                    if auto:
-                        plan=prepare_install(path,sys.executable,result['version'],os.getpid())
-                        if cancel.is_set():raise DownloadCancelled()
-                        events.put(('install_ready',plan))
-                    else:events.put(('done',path))
-                except DownloadCancelled:
-                    if session:shutil.rmtree(session,ignore_errors=True)
-                    events.put(('cancelled',None))
-                except Exception as e:
-                    LOG.exception('Update download failed')
-                    if session:shutil.rmtree(session,ignore_errors=True)
-                    events.put(('error',e))
-            self.download_workers=[t for t in self.download_workers if t.is_alive()]
-            thread=threading.Thread(target=worker,daemon=True)
-            self.download_workers.append(thread);thread.start()
-        def poll():
-            if not dialog.winfo_exists():
-                self.download_cancels.discard(cancel);return
-            for _ in range(100):
-                try:kind,value=events.get_nowait()
-                except queue.Empty:break
-                if kind=='progress':
-                    done,total=value;progress['value']=100*done/total
-                    status.set(f'{100*done/total:.0f}%  ·  {done/1048576:.1f} / {total/1048576:.1f} MB')
-                else:
-                    state['busy']=False;self.download_cancels.discard(cancel)
-                    if kind!='install_ready':
-                        self.installing=False
-                        self.start_button.configure(state='normal')
-                    download_button.configure(state='normal');file_button.configure(state='normal');cancel_button.configure(state='disabled')
-                    if kind=='install_ready':
-                        if cancel.is_set():
-                            self.installing=False;self.start_button.configure(state='normal')
-                            shutil.rmtree(Path(value).parent,ignore_errors=True);status.set('업데이트를 취소했습니다.');continue
-                        try:
-                            self.installing=True
-                            launch_installer(value)
-                            status.set('설치 및 재실행 중…');self.log('업데이트 파일 확인 완료 — 앱을 종료하고 교체합니다.')
-                            self.close();return
-                        except Exception as e:
-                            self.installing=False;self.start_button.configure(state='normal');status.set('업데이트 시작 실패: '+str(e));LOG.exception('Installer launch failed')
-                    elif kind=='done':
-                        state['saved']=value;progress['value']=100
-                        status.set('다운로드 완료: '+str(value));folder_button.configure(state='normal')
-                        self.log('새 버전 다운로드 완료: '+str(value))
-                    elif kind=='cancelled':status.set('다운로드를 취소했습니다. 다시 시도할 수 있습니다.')
-                    else:
-                        status.set('다운로드 실패: '+str(value))
-                        if isinstance(value,PermissionError) or '쓰기 권한' in str(value):
-                            self.show_permission_notice('업데이트 파일 저장',value,file_access=True)
-            dialog.after(100,poll)
-        download_button=ttk.Button(row,text='업데이트',style='Start.TButton',command=start_download);download_button.pack(side='left')
-        folder_button=ttk.Button(row,text='저장 폴더 열기',state='disabled',command=lambda:os.startfile(state['saved'].parent));folder_button.pack(side='left',padx=8)
-        cancel_button=ttk.Button(row,text='취소',state='disabled',command=cancel.set);cancel_button.pack(side='left')
-        ttk.Button(row,text='닫기',command=close_dialog).pack(side='right')
-        file_button=ttk.Button(frame,text='설치하지 않고 파일만 받기',command=lambda:start_download(False));file_button.pack(anchor='w',pady=(8,0))
-        ttk.Button(frame,text='GitHub 배포 페이지',command=lambda:webbrowser.open(result['url']) if release_url(result['url']) else None).pack(anchor='w',pady=(8,0))
-        dialog.lift()
-        dialog.attributes('-topmost',True)
-        dialog.after(2000,lambda:dialog.attributes('-topmost',False) if dialog.winfo_exists() else None)
-        dialog.after(100,poll)
+    @property
+    def data_path(self):
+        return DATA
+
+    def show_update(self,result=None):
+        if self.update_notice and not self.update_notice.closed:
+            if result:self.update_notice.set_release(result)
+            self.update_notice.show();return
+        self.update_notice=UpdateNotice(self,result)
+        self.update_dialog=self.update_notice.dialog
 
     def pump(self):
         if self.closing:return
@@ -562,19 +467,26 @@ class App:
                 self.running=False;self.lock_controls(False)
                 if self.status.get()!='확인 필요':self.status.set('중지됨')
             elif kind=='update':
-                self.update_busy=False;result,manual,error=value
+                self.update_busy=False;result,error=value
+                manual=self.update_manual_requested;self.update_manual_requested=False
+                notice=self.update_notice if self.update_notice and not self.update_notice.closed else None
                 if error:
-                    self.update_text.set('업데이트 연결 실패 · 재시도 가능')
-                    if manual:messagebox.showinfo('업데이트 확인','연결을 확인하고 다시 시도하세요.\n'+error,parent=self.root)
+                    self.update_text.set('업데이트 연결 실패 · 다시 확인 가능')
+                    if manual:
+                        if notice is None:self.show_update(None);notice=self.update_notice
+                        notice.set_check_error(error)
                 elif result:
-                    self.update_text.set(result['version']+' 업데이트 필요')
-                    self.update_button.configure(text='업데이트',command=lambda r=result:self.show_update(r))
-                    if manual or result['version'] not in self.seen_updates:
+                    self.latest_release=result
+                    newer=result.get('is_new',True)
+                    self.update_text.set(result['version']+(' 업데이트 필요' if newer else ' 최신 버전 사용 중'))
+                    if notice:notice.set_release(result)
+                    if manual or (newer and result['version'] not in self.seen_updates):
                         self.seen_updates.add(result['version']);self.show_update(result)
                 else:
-                    self.update_text.set('현재 배포 버전 확인 완료 · v'+VERSION)
-                    self.update_button.configure(text='업데이트 확인',command=lambda:self.update_check(True))
-                    if manual:messagebox.showinfo('업데이트 확인','현재 버전보다 새로운 정식 배포가 없습니다.',parent=self.root)
+                    self.update_text.set('등록된 최신 배포를 찾지 못했습니다.')
+                    if manual:
+                        if notice is None:self.show_update(None);notice=self.update_notice
+                        notice.set_no_release()
         keys=self.win.keys()
         if keys[1] and not self.previous_keys[1]:self.stop()
         elif keys[0] and not self.previous_keys[0]:
@@ -617,10 +529,12 @@ if __name__=='__main__':
         detector=Vision(BASE/'assets.json')
         app.show_update({'version':'v99.0.0','url':'https://github.com/'+REPOSITORY+'/releases/tag/v99.0.0','notes':'업데이트 다운로드 UI 검사','asset':{}})
         root.update_idletasks()
-        app.update_dialog.destroy()
+        app.update_notice.close()
         app.show_permission_notice('게임 조작')
         root.update_idletasks();app.permission_dialog.destroy()
-        report={'ok':True,'version':VERSION,'templates':len(detector.data),'ui':'created','platform':sys.platform}
+        from ui_update_test import exercise_update_buttons
+        update_ui_report=exercise_update_buttons(app)
+        report={'ok':True,'version':VERSION,'templates':len(detector.data),'ui':'created','platform':sys.platform,'update_ui':update_ui_report}
         out=Path(sys.argv[sys.argv.index('--report')+1])
         out.write_text(json.dumps(report),encoding='utf-8')
         app.closing=True;root.destroy()

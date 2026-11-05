@@ -10,6 +10,7 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError
 from urllib.parse import urlparse
 from version import VERSION, REPOSITORY
+from release_notes import latest_notes, grouped_changes
 
 
 def version_tuple(value):
@@ -24,11 +25,12 @@ def release_url(url):
     return p.scheme == 'https' and p.netloc == 'github.com' and p.path.startswith('/'+REPOSITORY+'/releases/') and not p.username
 
 
-def parse_release(data, current=VERSION):
+def parse_release(data, current=VERSION, include_current=False):
     if data.get('draft') or data.get('prerelease'):
         return None
     version = str(data.get('tag_name',''))
-    if version_tuple(version) <= version_tuple(current):
+    newer=version_tuple(version)>version_tuple(current)
+    if not newer and not (include_current and version_tuple(version)==version_tuple(current)):
         return None
     url = data.get('html_url','')
     if not release_url(url):
@@ -37,17 +39,18 @@ def parse_release(data, current=VERSION):
     asset = next((a for a in assets if a.get('name') == 'AbyssHelper.exe'),None)
     if asset is None:
         return None  # Do not announce a release until its Windows binary exists.
-    return {'version':version,'url':url,'asset':asset,'notes':str(data.get('body') or '변경 내용은 배포 페이지에서 확인하세요.')[:24000]}
+    notes=latest_notes(data.get('body'),version)
+    return {'version':version,'url':url,'asset':asset,'notes':notes,'changes':grouped_changes(notes),'is_new':newer}
 
 
-def check_update():
+def check_update(include_current=False):
     request = Request('https://api.github.com/repos/'+REPOSITORY+'/releases/latest',headers={'User-Agent':'AbyssHelper/'+VERSION,'Accept':'application/vnd.github+json'})
     try:
         with urlopen(request,timeout=10) as response:
             data = response.read(512_001)
         if len(data) > 512_000:
             raise ValueError('업데이트 응답이 너무 큽니다.')
-        return parse_release(json.loads(data))
+        return parse_release(json.loads(data),include_current=include_current)
     except HTTPError as e:
         if e.code == 404:
             return None
