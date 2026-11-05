@@ -7,9 +7,11 @@ import cv2
 import numpy as np
 from engine import Observation
 from motion import Stillness
+from detail_templates import DETAIL_TEMPLATES
 
 DUNGEONS = {'허상의 정박지': 'harbor', '광기의 동굴': 'cave', '흩어진 물길': 'water'}
 DIFFICULTIES = ['입문', '어려움', '매우 어려움', '매우 어려움2']
+DIFFICULTY_BOXES = [(26,170,80,205),(87,170,154,205),(160,170,256,205),(263,170,366,205)]
 
 
 @dataclass
@@ -26,6 +28,10 @@ class Hit:
 class Vision:
     def __init__(self, asset_path: Path):
         self.data = json.loads(asset_path.read_text(encoding='utf-8'))
+        self.data.update(DETAIL_TEMPLATES)
+        # Separate text searches so 어려움 cannot match inside 매우 어려움2.
+        for title, box in zip(DIFFICULTIES, DIFFICULTY_BOXES):
+            self.data['diff_'+title]['roi'] = list(box)
         self.templates = {}
         for name, item in self.data.items():
             png = cv2.imdecode(np.frombuffer(base64.b64decode(item['png']), np.uint8), cv2.IMREAD_GRAYSCALE)
@@ -70,6 +76,26 @@ class Vision:
         else:
             mask = (h > 75) & (h < 125) & (s > 100) & (v > 100)
         return float(np.mean(mask))
+
+    def difficulty_selection(self, requested):
+        candidates = []
+        point = None
+        for title, box in zip(DIFFICULTIES, DIFFICULTY_BOXES):
+            hit = self.hit('diff_'+title)
+            if title == requested and hit:
+                point = hit.center
+            x1,y1,x2,y2 = box
+            hsv = cv2.cvtColor(self.frame[y1:y2,x1:x2], cv2.COLOR_BGR2HSV)
+            h,s,v = cv2.split(hsv)
+            if title == '입문': hue = (h >= 120) & (h <= 145)
+            elif title == '어려움': hue = (h >= 15) & (h <= 35)
+            else: hue = (h <= 12) | (h >= 173)
+            # Selection outline and lettering are bright and saturated; grey tabs fail.
+            fraction = float(np.mean(hue & (s > 140) & (v > 120)))
+            if fraction > .12:
+                candidates.append(title)
+        # Ambiguous/transitional frames must never satisfy the entry condition.
+        return (candidates[0] if len(candidates) == 1 else ''), point
 
     def menu_target(self):
         # Banner height is variable. Match the actual icon/label and corroborate its row.
@@ -118,26 +144,13 @@ class Vision:
         if (h := self.hit('skip')):
             return Observation('cutscene', {'skip': h.center})
         if (e := self.hit('enter')) and (t := self.hit('together')):
-            detected = ''
-            if self.hit('detail_harbor'):
-                detected = '허상의 정박지'
-            else:
-                for title, key in DUNGEONS.items():
-                    if self.hit('name_' + key):
-                        detected = title
-                        break
+            names = [title for title,key in DUNGEONS.items() if self.hit('detail_'+key)]
+            detected = names[0] if len(names)==1 else ''
             p['enter'], p['together'] = e.center, t.center
             # Selection is the purple panel behind the text, not mere text presence.
             together = self.color_fraction((461, 36, 610, 94), 'purple') > .35
-            selected = ''
-            for title in DIFFICULTIES:
-                h = self.hit('diff_' + title)
-                if h:
-                    if title == difficulty:
-                        p['difficulty'] = h.center
-                    x,y,w,hg = h.box
-                    if self.color_fraction((x-8,y-7,x+w+8,y+hg+7),'orange') > .12:
-                        selected = title
+            selected, target = self.difficulty_selection(difficulty)
+            if target is not None:p['difficulty'] = target
             toggle = None
             if (label := self.hit('encounter_label')):
                 lx, ly, lw, lh = label.box

@@ -42,6 +42,7 @@ from installer import prepare_install, launch_installer, cleanup_updates
 from update_notice import UpdateNotice
 from ui_controls import SmoothCheckbutton, smooth_buttons,RoundScrollbar
 from ui_theme import LauncherHeader, app_icon
+from choice_control import SmoothChoice, DIFFICULTY_COLORS, PLAY_MODES
 from update_prompt import UpdatePrompt
 
 BASE = Path(getattr(sys,'_MEIPASS',Path(__file__).resolve().parent))
@@ -171,11 +172,18 @@ class App:
         self.difficulty=tk.StringVar(value=self.settings.get('difficulty','매우 어려움'))
         if self.difficulty.get() not in DIFFICULTIES:self.difficulty.set('매우 어려움')
         self.dungeon_box=ttk.Combobox(options,textvariable=self.dungeon,values=list(DUNGEONS),state='readonly');self.dungeon_box.grid(row=1,column=0,sticky='ew')
-        self.difficulty_box=ttk.Combobox(options,textvariable=self.difficulty,values=DIFFICULTIES,state='readonly');self.difficulty_box.grid(row=1,column=1,sticky='ew',padx=(12,0))
+        self.difficulty_box=SmoothChoice(options,textvariable=self.difficulty,values=DIFFICULTIES,colors=DIFFICULTY_COLORS);self.difficulty_box.grid(row=1,column=1,sticky='ew',padx=(12,0))
         self.dungeon_box.bind('<<ComboboxSelected>>',self.destination_changed)
         self.repeat=tk.BooleanVar(value=bool(self.settings.get('repeat',True)))
         self.food=tk.BooleanVar(value=bool(self.settings.get('food',True)))
-        self.repeat_check=SmoothCheckbutton(page,text='솔로 플레이: 보상 화면에서 다시 하기',variable=self.repeat);self.repeat_check.pack(anchor='w')
+        self.play_mode=tk.StringVar(value=self.settings.get('play_mode',PLAY_MODES[0]))
+        if self.play_mode.get() not in PLAY_MODES:self.play_mode.set(PLAY_MODES[0])
+        self.play_mode.trace_add('write',self.play_mode_changed)
+        self.repeat.set(self.play_mode.get()==PLAY_MODES[0])
+        ttk.Label(page,text='플레이 모드').pack(anchor='w',pady=(6,4))
+        self.mode_box=SmoothChoice(page,textvariable=self.play_mode,values=PLAY_MODES);self.mode_box.pack(fill='x',pady=(0,4))
+        self.mode_hint=tk.StringVar(value='솔로 플레이: 보상 화면에서 다시 하기 · 파티 플레이: 준비 중')
+        ttk.Label(page,textvariable=self.mode_hint,style='Muted.TLabel').pack(anchor='w')
         self.food_check=SmoothCheckbutton(page,text='음식 아이콘이 나타나면 한 번 클릭',variable=self.food);self.food_check.pack(anchor='w')
         ttk.Label(page,text='입장 조건: 함께하기 · 선택한 난이도 · 우연한 만남 ON',style='Muted.TLabel').pack(anchor='w',pady=(4,10))
         controls=ttk.Frame(page);controls.pack(fill='x',pady=(0,10))
@@ -183,159 +191,7 @@ class App:
         self.stop_button=ttk.Button(controls,text='■  중지   F9',style='Stop.TButton',command=self.stop,state='disabled');self.stop_button.pack(side='left',fill='x',expand=True,padx=(10,0))
         ttk.Label(page,text='시작 후 게임 창을 클릭하세요. 다른 창을 사용하면 자동으로 대기합니다.',style='Muted.TLabel',wraplength=650).pack(anchor='w',pady=(0,12))
         log_header=ttk.Frame(page);log_header.pack(fill='x')
-        ttk.Label(log_header,text='✦ 진행 기록',font=('맑은 고딕',11,'bold')).pack(side='left')
-        ttk.Button(log_header,text='기록 폴더',command=lambda:os.startfile(DATA)).pack(side='right')
-        self.log_box=tk.Text(page,height=8,background='#09101b',foreground='#b9cbea',font=('맑은 고딕',9),relief='flat',padx=12,pady=10,wrap='word',state='disabled')
-        self.log_box.pack(fill='both',expand=True,pady=(8,12))
-        bottom=self.footer
-        self.update_text=tk.StringVar(value='GitHub 업데이트 안내 연결됨')
-        ttk.Label(bottom,textvariable=self.update_text,style='Muted.TLabel').pack(side='left')
-        self.update_button=ttk.Button(bottom,text='업데이트 소식',command=self.open_update_notice);self.update_button.pack(side='right')
-        ttk.Button(bottom,text='권한 확인',command=self.check_permissions).pack(side='right',padx=(0,8))
-        smooth_buttons(self.root)
-
-    def scroll_page(self,event):
-        if not isinstance(event.widget,tk.Misc):return
-        if event.widget.winfo_toplevel() is not self.root:return
-        if isinstance(event.widget,(tk.Text,ttk.Combobox)):return
-        self.page_canvas.yview_scroll(-int(event.delta/120),'units')
-
-    def destination_changed(self,_=None):
-        self.difficulty.set({'허상의 정박지':'매우 어려움','광기의 동굴':'어려움','흩어진 물길':'입문'}[self.dungeon.get()])
-        if self.dungeon.get() != '허상의 정박지':
-            self.log('이 던전의 상세·전투 화면은 실게임 확인이 필요합니다. 이름·조건을 확인하지 못하면 입장을 보류합니다.')
-
-    def log(self,message):
-        LOG.info(message)
-        self.log_box.configure(state='normal')
-        self.log_box.insert('end',time.strftime('%H:%M:%S')+'  '+message+'\n')
-        if int(self.log_box.index('end-1c').split('.')[0])>500:
-            self.log_box.delete('1.0','100.0')
-        self.log_box.see('end');self.log_box.configure(state='disabled')
-
-    def refresh(self):
-        if self.running:return
-        previous = None
-        index = self.window_box.current()
-        if 0 <= index < len(self.windows):previous=self.windows[index][0]
-        self.windows=self.win.list_windows()
-        self.window_box['values']=[f'{title}  [{width}×{height}]' for _,title,width,height in self.windows]
-        if self.windows:
-            preferred=next((i for i,w in enumerate(self.windows) if w[0]==previous),None)
-            if preferred is None:preferred=next((i for i,w in enumerate(self.windows) if self.win.active(w[0])),0)
-            self.window_box.current(preferred)
-        else:self.window_choice.set('마비노기 모바일을 실행해 주세요')
-
-    def selected(self):
-        index=self.window_box.current()
-        if index<0 or index>=len(self.windows):raise WindowError('마비노기 모바일 게임 창을 찾지 못했습니다. 게임을 실행하세요.')
-        hwnd=self.windows[index][0]
-        self.win.ensure_game(hwnd)
-        return hwnd
-
-    def check_permissions(self):
-        hwnd=None
-        try:
-            self.refresh();hwnd=self.selected()
-        except WindowError:pass
-        self.show_permission_notice('게임 조작',hwnd=hwnd)
-
-    def show_permission_notice(self,operation,error=None,hwnd=None,file_access=False):
-        if self.permission_dialog and self.permission_dialog.winfo_exists():
-            self.permission_dialog.lift();return
-        rights=getattr(error,'rights',None)
-        if rights is None:
-            try:rights=self.win.permission_status(hwnd)
-            except Exception:rights={'app_admin':process_elevated(),'game_admin':None}
-        code=getattr(error,'winerror',None)
-        advice=permission_advice(operation,rights['app_admin'],rights['game_admin'],code,file_access)
-        self.log('권한 안내: '+advice['levels']+' / '+operation+((' / '+str(error)) if error else ''))
-        dialog=tk.Toplevel(self.root);self.permission_dialog=dialog
-        dialog.title(advice['title']);dialog.geometry('630x510');dialog.configure(bg=BG);dialog.transient(self.root)
-        frame=ttk.Frame(dialog,padding=24);frame.pack(fill='both',expand=True)
-        ttk.Label(frame,text=advice['title'],font=('맑은 고딕',18,'bold')).pack(anchor='w')
-        ttk.Label(frame,text=advice['levels'],foreground=ACCENT).pack(anchor='w',pady=(12,10))
-        text=tk.Text(frame,bg='#09101b',fg=TEXT,relief='flat',wrap='word',font=('맑은 고딕',10),padx=12,pady=12)
-        text.insert('1.0',advice['message'])
-        if error:text.insert('end','\n\n작업: '+operation+'\n오류: '+str(error))
-        text.configure(state='disabled');text.pack(fill='both',expand=True,pady=(0,15))
-        row=ttk.Frame(frame);row.pack(fill='x')
-        if advice['can_elevate'] and getattr(sys,'frozen',False):
-            ttk.Button(row,text='관리자 권한으로 다시 실행',style='Start.TButton',command=self.restart_as_admin).pack(side='left')
-        ttk.Button(row,text='기록 폴더 열기',command=lambda:os.startfile(DATA)).pack(side='left',padx=8)
-        ttk.Button(row,text='닫기',command=dialog.destroy).pack(side='right')
-        smooth_buttons(dialog);dialog.lift()
-
-    def show_operation_error(self,title,error,hwnd=None):
-        if getattr(error,'winerror',None)==5:
-            self.show_permission_notice(title,error,hwnd)
-        elif isinstance(error,PermissionError):
-            self.show_permission_notice(title,error,hwnd,file_access=True)
-        else:
-            messagebox.showerror(title,str(error)+'\n\n상세 정보는 기록 폴더의 app.log를 확인하세요.',parent=self.root)
-
-    def restart_as_admin(self):
-        if not getattr(sys,'frozen',False):return
-        try:
-            if process_elevated() is True:
-                messagebox.showinfo('권한 확인','현재 앱은 이미 관리자 권한입니다.',parent=self.root);return
-            self.stop()
-            self.settings={'dungeon':self.dungeon.get(),'difficulty':self.difficulty.get(),'repeat':self.repeat.get(),'food':self.food.get()}
-            self.settings_path.write_text(json.dumps(self.settings,ensure_ascii=False,indent=2),encoding='utf-8')
-            if relaunch_admin(sys.executable):
-                self.log('Windows 관리자 권한 재실행이 승인되어 현재 앱을 종료합니다.');self.close()
-            else:
-                self.log('사용자가 Windows 권한 승인을 취소했습니다. 현재 앱을 유지합니다.')
-                messagebox.showinfo('권한 요청 취소','Windows 권한 승인이 취소되어 현재 앱을 그대로 유지합니다.',parent=self.root)
-        except OSError as e:
-            self.log('관리자 권한 재실행 실패: '+str(e))
-            messagebox.showerror('재실행 실패',str(e)+'\n앱 EXE를 우클릭 → 관리자 권한으로 실행을 선택해 주세요.',parent=self.root)
-
-    def sizing_finished(self):
-        self.sizing_busy=False
-        self.resize_button.configure(state='normal')
-        self.start_button.configure(state='normal')
-
-    def sizing_error(self,hwnd,error):
-        try:self.log('창 맞춤 진단: '+json.dumps(self.win.diagnostics(hwnd),ensure_ascii=False))
-        except Exception:LOG.exception('Window diagnostics failed')
-        self.log('창 맞춤 실패: '+str(error))
-        self.detail.set('창 맞추기 실패 — 기록에서 원인을 확인하세요.')
-        self.sizing_finished()
-        self.show_operation_error('자동 창 맞추기',error,hwnd)
-
-    def resize(self):
-        if self.running or self.sizing_busy or self.installing or self.closing:return
-        hwnd=None
-        try:
-            self.refresh();hwnd=self.selected()
-            self.log('창 맞춤 시작: '+json.dumps(self.win.diagnostics(hwnd),ensure_ascii=False))
-            self.sizing_busy=True
-            self.resize_button.configure(state='disabled');self.start_button.configure(state='disabled')
-            info=self.win.prepare_resize(hwnd)
-            if info['fullscreen_like'] and info['client'] != [800,1000]:
-                self.detail.set('전체 화면 감지 → 게임 활성화 및 창 모드 전환 중…')
-                self.root.after(300,lambda:self.exit_fullscreen(hwnd))
-            else:self.apply_resize(hwnd)
-        except WindowError as e:
-            if hwnd is None:
-                messagebox.showerror('게임 창 확인',str(e),parent=self.root)
-            else:self.sizing_error(hwnd,e)
-
-    def exit_fullscreen(self,hwnd):
-        if self.closing:return
-        try:
-            self.win.toggle_fullscreen(hwnd)
-            self.log('전체 화면 전환: 게임에 Alt+Enter를 한 번 전달했습니다.')
-            self.root.after(1400,lambda:self.apply_resize(hwnd))
-        except WindowError as e:self.sizing_error(hwnd,e)
-
-    def apply_resize(self,hwnd):
-        if self.closing:return
-        try:
-            info=self.win.diagnostics(hwnd)
-            # Persistent borderless or fixed-style windows require a real frame change.
-            if info['fullscreen_like'] or (int(info['style'],16)&0x00C00000)!=0x00C00000:
+        ttk.Label(log…2587 tokens truncated…           if info['fullscreen_like'] or (int(info['style'],16)&0x00C00000)!=0x00C00000:
                 self.win.make_windowed(hwnd)
                 self.log('테두리 없는 창/고정 창의 스타일을 보정했습니다.')
             self.win.resize(hwnd)
@@ -369,12 +225,22 @@ class App:
         except WindowError as e:self.sizing_error(hwnd,e)
 
     def lock_controls(self,running):
-        for w in (self.window_box,self.dungeon_box,self.difficulty_box):w.configure(state='disabled' if running else 'readonly')
-        for w in (self.refresh_button,self.resize_button,self.start_button,self.repeat_check,self.food_check):w.configure(state='disabled' if running else 'normal')
+        for w in (self.window_box,self.dungeon_box,self.difficulty_box,self.mode_box):w.configure(state='disabled' if running else 'readonly')
+        for w in (self.refresh_button,self.resize_button,self.start_button,self.food_check):w.configure(state='disabled' if running else 'normal')
         self.stop_button.configure(state='normal' if running else 'disabled')
-        if self.installing:self.start_button.configure(state='disabled')
+        if self.installing or self.play_mode.get()==PLAY_MODES[1]:self.start_button.configure(state='disabled')
+
+    def play_mode_changed(self,*_):
+        party=self.play_mode.get()==PLAY_MODES[1]
+        self.repeat.set(not party)
+        if hasattr(self,'mode_hint'):
+            self.mode_hint.set('파티 플레이: 준비 중' if party else '솔로 플레이: 보상 화면에서 다시 하기 · 파티 플레이: 준비 중')
+            self.status.set('파티 플레이 준비 중' if party else '시작 대기')
+            self.start_button.configure(state='disabled' if party or self.running or self.installing else 'normal')
 
     def start(self):
+        if self.play_mode.get()==PLAY_MODES[1]:
+            messagebox.showinfo('파티 플레이','파티 플레이는 준비 중입니다.',parent=self.root);return
         if self.running or self.sizing_busy or self.installing or self.closing:return
         try:
             self.refresh()
@@ -384,11 +250,11 @@ class App:
             if (w,h)!=(800,1000):raise WindowError(f'실제 화면이 {w}×{h}입니다. 먼저 게임 창 자동 맞추기를 누르세요.')
         except WindowError as e:
             self.show_operation_error('매크로 시작',e,locals().get('hwnd'));return
-        self.settings={'dungeon':self.dungeon.get(),'difficulty':self.difficulty.get(),'repeat':self.repeat.get(),'food':self.food.get()}
+        self.settings={'dungeon':self.dungeon.get(),'difficulty':self.difficulty.get(),'repeat':self.repeat.get(),'food':self.food.get(),'play_mode':self.play_mode.get()}
         self.settings_path.write_text(json.dumps(self.settings,ensure_ascii=False,indent=2),encoding='utf-8')
         self.running=True;self.stop_event.clear();self.lock_controls(True)
         self.status.set('게임 창을 클릭하세요')
-        self.log('시작: '+self.dungeon.get()+' / '+self.difficulty.get()+' — 게임 창이 앞에 있을 때만 인식·클릭합니다.')
+        self.log('시작: '+self.dungeon.get()+' / '+self.difficulty.get()+' / '+self.play_mode.get()+' — 게임 창이 앞에 있을 때만 인식·클릭합니다.')
         self.worker=threading.Thread(target=self.run,args=(hwnd,dict(self.settings)),daemon=True);self.worker.start()
 
     def stop(self):
