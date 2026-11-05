@@ -2,6 +2,7 @@
 import sys
 import ctypes as C
 from ctypes import wintypes as W
+from game_identity import is_game_window
 
 
 def dpi_aware():
@@ -21,6 +22,15 @@ class Windows:
         if sys.platform != 'win32':
             raise WindowError('이 앱은 Windows 10/11 PC용입니다.')
         self.u = C.WinDLL('user32', use_last_error=True)
+        self.k = C.WinDLL('kernel32',use_last_error=True)
+        self.k.OpenProcess.argtypes = [W.DWORD,W.BOOL,W.DWORD]
+        self.k.OpenProcess.restype = W.HANDLE
+        self.k.QueryFullProcessImageNameW.argtypes = [W.HANDLE,W.DWORD,W.LPWSTR,C.POINTER(W.DWORD)]
+        self.k.CloseHandle.argtypes = [W.HANDLE]
+        self.u.GetWindowThreadProcessId.argtypes = [W.HWND,C.POINTER(W.DWORD)]
+        self.u.GetWindowRect.argtypes = [W.HWND,C.POINTER(W.RECT)]
+        self.u.MonitorFromWindow.argtypes = [W.HWND,W.DWORD]
+        self.u.MonitorFromWindow.restype = W.HANDLE
         self.u.GetForegroundWindow.restype = W.HWND
         self.u.GetAncestor.argtypes = [W.HWND, W.UINT]
         self.u.GetAncestor.restype = W.HWND
@@ -42,18 +52,40 @@ class Windows:
         self.u.GetAsyncKeyState.argtypes = [C.c_int]
         self.u.GetAsyncKeyState.restype = C.c_short
 
+    def identity(self, hwnd):
+        if not self.u.IsWindow(hwnd):
+            return ('','')
+        n = self.u.GetWindowTextLengthW(hwnd)
+        title = C.create_unicode_buffer(n+1)
+        self.u.GetWindowTextW(hwnd,title,n+1)
+        pid = W.DWORD()
+        self.u.GetWindowThreadProcessId(hwnd,C.byref(pid))
+        handle = self.k.OpenProcess(0x1000,False,pid.value)
+        if not handle:
+            return (title.value,'')
+        try:
+            size = W.DWORD(32768)
+            path = C.create_unicode_buffer(size.value)
+            if not self.k.QueryFullProcessImageNameW(handle,0,path,C.byref(size)):
+                return (title.value,'')
+            return (title.value,path.value)
+        finally:
+            self.k.CloseHandle(handle)
+
+    def ensure_game(self, hwnd):
+        if not is_game_window(*self.identity(hwnd)):
+            raise WindowError('마비노기 모바일 게임 창을 확인하지 못했습니다. 게임을 실행하고 다시 시도하세요.')
+
     def list_windows(self):
         result = []
         @self.callback
         def each(hwnd, _):
             if self.u.IsWindowVisible(hwnd):
-                n = self.u.GetWindowTextLengthW(hwnd)
-                if n:
-                    b = C.create_unicode_buffer(n+1)
-                    self.u.GetWindowTextW(hwnd,b,n+1)
+                title, path = self.identity(hwnd)
+                if is_game_window(title,path):
                     r = W.RECT()
-                    if self.u.GetClientRect(hwnd,C.byref(r)) and r.right >= 300 and r.bottom >= 400:
-                        result.append((int(hwnd),b.value,r.right,r.bottom))
+                    if self.u.GetClientRect(hwnd,C.byref(r)):
+                        result.append((int(hwnd),title,r.right,r.bottom))
             return True
         self.u.EnumWindows(each,0)
         return result
@@ -66,9 +98,8 @@ class Windows:
             raise WindowError('게임 화면 위치를 읽지 못했습니다.')
         return (p.x,p.y,r.right,r.bottom)
 
-    def resize(self, hwnd):
-        if not self.u.IsWindow(hwnd) or self.u.IsIconic(hwnd):
-            raise WindowError('게임 창을 복원한 뒤 다시 시도하세요.')
+    def resize(self, hwnd, correction=False):
+        self.ensure_game(hwnd)
         self.u.ShowWindow(hwnd,9)
         style = self.u.GetWindowLongW(hwnd,-16)
         exstyle = self.u.GetWindowLongW(hwnd,-20)
@@ -81,7 +112,23 @@ class Windows:
             self.u.AdjustWindowRectExForDpi(C.byref(rect),style,has_menu,exstyle,dpi)
         except AttributeError:
             self.u.AdjustWindowRectEx(C.byref(rect),style,has_menu,exstyle)
-        if not self.u.SetWindowPos(hwnd,None,0,0,rect.right-rect.left,rect.bottom-rect.top,0x0002|0x0004|0x0010):
+        width,height = rect.right-rect.left,rect.bottom-rect.top
+        outer = W.RECT()
+        self.u.GetWindowRect(hwnd,C.byref(outer))
+        if correction:
+            _,_,cw,ch = self.rect(hwnd)
+            width,height = outer.right-outer.left+800-cw,outer.bottom-outer.top+1000-ch
+        class MONITORINFO(C.Structure):
+            _fields_ = [('cbSize',W.DWORD),('rcMonitor',W.RECT),('rcWork',W.RECT),('dwFlags',W.DWORD)]
+        info = MONITORINFO();info.cbSize = C.sizeof(info)
+        monitor = self.u.MonitorFromWindow(hwnd,2)
+        self.u.GetMonitorInfoW.argtypes = [W.HANDLE,C.POINTER(MONITORINFO)]
+        x,y = outer.left,outer.top
+        if self.u.GetMonitorInfoW(monitor,C.byref(info)):
+            r = info.rcWork
+            x = max(r.left,min(x,r.right-width))
+            y = max(r.top,min(y,r.bottom-height))
+        if not self.u.SetWindowPos(hwnd,None,x,y,width,height,0x0004|0x0010):
             raise WindowError('창 크기를 바꿀 수 없습니다. 게임을 창 모드로 설정하세요.')
 
     def active(self, hwnd):
@@ -92,7 +139,8 @@ class Windows:
         return (bool(self.u.GetAsyncKeyState(0x77)&0x8000), bool(self.u.GetAsyncKeyState(0x78)&0x8000))
 
     def click(self, hwnd, point):
-        # Recheck foreground, client size and visibility immediately before every click.
+        # Recheck identity, foreground, client size and visibility before every click.
+        self.ensure_game(hwnd)
         if not self.active(hwnd):
             raise WindowError('게임 창이 앞에 있지 않아 입력을 보류했습니다.')
         left,top,width,height = self.rect(hwnd)

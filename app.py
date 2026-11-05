@@ -61,7 +61,7 @@ class App:
         self.style()
         self.build()
         self.refresh()
-        self.log('게임을 창 모드로 실행하고 창을 선택하세요. F9를 누르면 즉시 중지합니다.')
+        self.log('마비노기 모바일을 창 모드로 실행하고 게임 창 자동 맞추기를 누르세요. F9를 누르면 즉시 중지합니다.')
         root.after(100,self.pump)
         root.after(1600,self.update_check)
 
@@ -106,7 +106,7 @@ class App:
         self.window_choice=tk.StringVar()
         self.window_box=ttk.Combobox(row,textvariable=self.window_choice,state='readonly');self.window_box.pack(side='left',fill='x',expand=True)
         self.refresh_button=ttk.Button(row,text='새로고침',command=self.refresh);self.refresh_button.pack(side='left',padx=(8,0))
-        self.resize_button=ttk.Button(row,text='800 × 1000 맞추기',command=self.resize);self.resize_button.pack(side='left',padx=(8,0))
+        self.resize_button=ttk.Button(row,text='게임 창 자동 맞추기',command=self.resize);self.resize_button.pack(side='left',padx=(8,0))
         options=ttk.Frame(page);options.pack(fill='x',pady=(15,8))
         options.columnconfigure(0,weight=1);options.columnconfigure(1,weight=1)
         ttk.Label(options,text='목적지').grid(row=0,column=0,sticky='w',pady=(0,5))
@@ -152,29 +152,45 @@ class App:
 
     def refresh(self):
         if self.running:return
-        self.windows=[w for w in self.win.list_windows() if w[0]!=self.root.winfo_id() and '어비스 헬퍼' not in w[1]]
+        previous = None
+        index = self.window_box.current()
+        if 0 <= index < len(self.windows):previous=self.windows[index][0]
+        self.windows=self.win.list_windows()
         self.window_box['values']=[f'{title}  [{width}×{height}]' for _,title,width,height in self.windows]
         if self.windows:
-            preferred=next((i for i,w in enumerate(self.windows) if '마비노기' in w[1] or 'mabinogi' in w[1].lower()),0)
+            preferred=next((i for i,w in enumerate(self.windows) if w[0]==previous),None)
+            if preferred is None:preferred=next((i for i,w in enumerate(self.windows) if self.win.active(w[0])),0)
             self.window_box.current(preferred)
-        else:self.window_choice.set('선택 가능한 게임 창이 없습니다')
+        else:self.window_choice.set('마비노기 모바일을 실행해 주세요')
 
     def selected(self):
         index=self.window_box.current()
-        if index<0 or index>=len(self.windows):raise WindowError('먼저 게임 창을 선택하세요.')
-        return self.windows[index][0]
+        if index<0 or index>=len(self.windows):raise WindowError('마비노기 모바일 게임 창을 찾지 못했습니다. 게임을 실행하세요.')
+        hwnd=self.windows[index][0]
+        self.win.ensure_game(hwnd)
+        return hwnd
 
     def resize(self):
+        if self.running:return
         try:
+            # Refresh here: the game may have been opened after the helper.
+            self.refresh()
             hwnd=self.selected();self.win.resize(hwnd)
-            self.root.after(500,lambda:self.verify_size(hwnd))
+            self.detail.set('마비노기 모바일 창을 자동으로 맞추는 중…')
+            self.root.after(400,lambda:self.verify_size(hwnd))
         except WindowError as e:messagebox.showerror('크기 설정',str(e),parent=self.root)
 
-    def verify_size(self,hwnd):
+    def verify_size(self,hwnd,attempt=0):
         try:
             _,_,w,h=self.win.rect(hwnd)
-            if (w,h)!=(800,1000):raise WindowError(f'현재 게임 화면은 {w}×{h}입니다. 게임의 창 모드·크기 제한을 확인하세요.')
-            self.log('실제 게임 화면을 800×1000으로 확인했습니다.')
+            if (w,h)!=(800,1000):
+                if attempt < 3:
+                    self.win.resize(hwnd,correction=True)
+                    self.root.after(400,lambda:self.verify_size(hwnd,attempt+1))
+                    return
+                raise WindowError(f'현재 게임 화면은 {w}×{h}입니다. 게임을 창 모드로 바꾸고 다시 눌러 주세요.')
+            self.refresh()
+            self.log('마비노기 모바일을 자동으로 찾아 실제 게임 화면 800×1000 맞추기 완료.')
             self.detail.set('게임 화면 800 × 1000 확인 완료')
         except WindowError as e:messagebox.showerror('크기 확인',str(e),parent=self.root)
 
@@ -186,9 +202,10 @@ class App:
     def start(self):
         if self.running:return
         try:
+            self.refresh()
             hwnd=self.selected()
             _,_,w,h=self.win.rect(hwnd)
-            if (w,h)!=(800,1000):raise WindowError(f'실제 화면이 {w}×{h}입니다. 먼저 800×1000 맞추기를 누르세요.')
+            if (w,h)!=(800,1000):raise WindowError(f'실제 화면이 {w}×{h}입니다. 먼저 게임 창 자동 맞추기를 누르세요.')
         except WindowError as e:
             messagebox.showerror('시작할 수 없음',str(e),parent=self.root);return
         self.settings={'dungeon':self.dungeon.get(),'difficulty':self.difficulty.get(),'repeat':self.repeat.get(),'food':self.food.get()}
@@ -220,6 +237,7 @@ class App:
                     if paused_at is not None:
                         if controller.entered_at is not None:controller.entered_at+=now-paused_at
                         paused_at=None;last_status=None;last_screen='';streak=0
+                    self.win.ensure_game(hwnd)
                     left,top,width,height=self.win.rect(hwnd)
                     if (width,height)!=(800,1000):raise WindowError('화면 크기가 바뀌어 중지했습니다. 800×1000으로 다시 맞추세요.')
                     monitor=capture.monitors[0]
