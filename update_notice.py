@@ -14,7 +14,8 @@ from updates import download_release, DownloadCancelled
 from installer import prepare_install, launch_installer
 from release_notes import KINDS, grouped_changes
 from version import VERSION
-from ui_controls import smooth_buttons
+from ui_controls import smooth_buttons,RoundScrollbar
+from dialog_layout import fit_dialog
 
 
 @dataclass
@@ -29,44 +30,49 @@ class UpdateNotice:
         self.app=app;self.release=None;self.ops=operations or UpdateOperations()
         self.cancel=threading.Event();self.events=queue.Queue()
         self.phase='idle';self.closed=False;self.thread=None;self.session=None;self.saved=None
-        self.dialog=tk.Toplevel(app.root);self.dialog.title('업데이트 소식');self.dialog.geometry('660x650');self.dialog.minsize(580,580)
+        self.dialog=tk.Toplevel(app.root);self.dialog.title('업데이트 소식');self.dialog.geometry('700x700')
         self.dialog.configure(bg='#0c1220');self.dialog.transient(app.root)
         self.dialog.protocol('WM_DELETE_WINDOW',self.close)
         frame=ttk.Frame(self.dialog,padding=24);frame.pack(fill='both',expand=True)
-        self.heading=ttk.Label(frame,text='업데이트 확인 중',font=('맑은 고딕',20,'bold'));self.heading.pack(anchor='w')
-        self.version=ttk.Label(frame,text='새 버전 정보를 가져오고 있습니다.',foreground='#9caccc');self.version.pack(anchor='w',pady=(8,10))
-        legend=ttk.Frame(frame);legend.pack(fill='x',pady=(0,8))
+        self.footer=ttk.Frame(frame);self.footer.pack(side='bottom',fill='x')
+        header=ttk.Frame(frame);header.pack(side='top',fill='x')
+        self.heading=ttk.Label(header,text='업데이트 확인 중',font=('맑은 고딕',20,'bold'));self.heading.pack(anchor='w')
+        self.version=ttk.Label(header,text='새 버전 정보를 가져오고 있습니다.',foreground='#9caccc');self.version.pack(anchor='w',pady=(8,10))
+        legend=ttk.Frame(header);legend.pack(fill='x',pady=(0,8))
         for _,title,color in KINDS:ttk.Label(legend,text='● '+title,foreground=color).pack(side='left',padx=(0,18))
         notes_frame=ttk.Frame(frame);notes_frame.pack(fill='both',expand=True)
-        self.notes=tk.Text(notes_frame,bg='#09101b',fg='#edf2ff',relief='flat',wrap='word',font=('맑은 고딕',10),padx=14,pady=12,state='disabled')
+        self.notes=tk.Text(notes_frame,bg='#09101b',fg='#edf2ff',relief='flat',wrap='word',font=('맑은 고딕',10),padx=14,pady=12,state='disabled',height=6)
         self.notes.pack(side='left',fill='both',expand=True)
-        scroll=ttk.Scrollbar(notes_frame,command=self.notes.yview);scroll.pack(side='right',fill='y');self.notes.configure(yscrollcommand=scroll.set)
+        self.scroll=RoundScrollbar(notes_frame,command=self.notes.yview,bg='#09101b');self.scroll.pack(side='right',fill='y');self.notes.configure(yscrollcommand=self.scroll.set)
         for kind,_,color in KINDS:
             self.notes.tag_configure(kind,foreground=color,spacing1=4,spacing3=8)
             self.notes.tag_configure(kind+'_heading',foreground=color,font=('맑은 고딕',12,'bold'),spacing1=12,spacing3=6)
-        self.progress=ttk.Progressbar(frame,mode='determinate',maximum=100);self.progress.pack(fill='x',pady=(14,4))
+        self.progress=ttk.Progressbar(self.footer,mode='determinate',maximum=100);self.progress.pack(fill='x',pady=(14,4))
         self.status=tk.StringVar(value='업데이트 확인 중…')
-        self.status_label=ttk.Label(frame,textvariable=self.status,wraplength=600);self.status_label.pack(anchor='w',pady=(3,6))
-        ttk.Label(frame,text='이 버전의 변경 사항만 표시합니다. 업데이트 시 매크로는 중지되고 설정은 유지됩니다.',style='Muted.TLabel',wraplength=600).pack(anchor='w')
-        row=ttk.Frame(frame);row.pack(fill='x',pady=(14,0))
+        self.status_label=ttk.Label(self.footer,textvariable=self.status,wraplength=600);self.status_label.pack(anchor='w',pady=(3,6))
+        self.hint_label=ttk.Label(self.footer,text='이 버전의 변경 사항만 표시합니다. 업데이트 시 매크로는 중지되고 설정은 유지됩니다.',style='Muted.TLabel',wraplength=600);self.hint_label.pack(anchor='w')
+        row=ttk.Frame(self.footer);row.pack(fill='x',pady=(14,0))
         self.primary=ttk.Button(row,text='업데이트',style='Start.TButton',state='disabled',command=self.begin);self.primary.pack(side='left')
         self.cancel_button=ttk.Button(row,text='다운로드 취소',command=self.request_cancel,state='disabled');self.cancel_button.pack(side='left',padx=8)
         self.close_button=ttk.Button(row,text='닫기',command=self.close);self.close_button.pack(side='right')
-        extra=ttk.Frame(frame);extra.pack(fill='x',pady=(8,0))
+        extra=ttk.Frame(self.footer);extra.pack(fill='x',pady=(8,0))
         self.file_button=ttk.Button(extra,text='파일만 다운로드',command=lambda:self.begin(False),state='disabled');self.file_button.pack(side='left')
         self.folder_button=ttk.Button(extra,text='저장 폴더 열기',command=lambda:os.startfile(self.saved.parent),state='disabled');self.folder_button.pack(side='left',padx=8)
+        self.dialog.bind('<Configure>',self.wrap_footer,add='+')
         smooth_buttons(self.dialog)
         if release:self.set_release(release)
         self.show();app.root.after(80,self.poll)
+
+    def wrap_footer(self,event):
+        if event.widget is self.dialog:
+            width=max(240,event.width-48)
+            self.status_label.configure(wraplength=width);self.hint_label.configure(wraplength=width)
 
     def show(self):
         if self.closed:return
         if self.app.root.state()=='iconic':self.app.root.deiconify()
         self.dialog.deiconify();self.dialog.lift()
-        # Reposition a previously minimized/off-screen notification before focusing it.
-        sw,sh=self.dialog.winfo_screenwidth(),self.dialog.winfo_screenheight()
-        x=max(0,min(self.app.root.winfo_rootx()+30,sw-660));y=max(0,min(self.app.root.winfo_rooty()+30,sh-650))
-        self.dialog.geometry(f'660x650+{x}+{y}')
+        fit_dialog(self.app,self.dialog,(700,700),(520,440))
         self.dialog.attributes('-topmost',True)
         self.app.root.after(1800,lambda:self.dialog.attributes('-topmost',False) if not self.closed else None)
 

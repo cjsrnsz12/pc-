@@ -1,7 +1,7 @@
 {
-  "version": "1.0.10",
-  "title": "런처 테마·✓ 체크박스·부드러운 전환",
-  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.0.10",
-  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.0.10/AbyssHelper.exe",
-  "notes": "보라·민트 그라데이션과 전용 아이콘, 체크박스 흰 배경 수정, ✓ 표시와 버튼 전환 애니메이션"
+  "version": "1.0.11",
+  "title": "작은 업데이트 확인창 및 둥근 스크롤바",
+  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.0.11",
+  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.0.11/AbyssHelper.exe",
+  "notes": "지금 업데이트·업데이트 내용·나중에 별도 창, 설치 버튼 하단 고정, 둥근 스크롤바와 화면 맞춤"
 }

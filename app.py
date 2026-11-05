@@ -40,8 +40,9 @@ from updates import check_update, release_url, download_release, DownloadCancell
 from version import VERSION, REPOSITORY
 from installer import prepare_install, launch_installer, cleanup_updates
 from update_notice import UpdateNotice
-from ui_controls import SmoothCheckbutton, smooth_buttons
+from ui_controls import SmoothCheckbutton, smooth_buttons,RoundScrollbar
 from ui_theme import LauncherHeader, app_icon
+from update_prompt import UpdatePrompt
 
 BASE = Path(getattr(sys,'_MEIPASS',Path(__file__).resolve().parent))
 DATA = Path(os.getenv('LOCALAPPDATA', str(Path.home()))) / 'AbyssHelper'
@@ -71,6 +72,7 @@ class App:
         self.download_workers = []
         self.update_dialog = None
         self.update_notice = None
+        self.update_prompt = None
         self.install_owner = None
         self.latest_release = None
         self.update_manual_requested = False
@@ -126,6 +128,7 @@ class App:
         s.configure('Stop.TButton',foreground='#ffacb5')
         s.configure('TCombobox',fieldbackground='#263550',background='#263550',foreground=TEXT,padding=7,arrowcolor=TEXT)
         s.map('TCombobox',fieldbackground=[('disabled','#182237'),('readonly','#263550'),('active','#263550')],background=[('disabled','#182237'),('active','#30425e'),('!disabled','#263550')],foreground=[('disabled',MUTED),('readonly',TEXT)],bordercolor=[('focus','#7dd9cf'),('active','#7a6fc2'),('!disabled','#455577')],lightcolor=[('!disabled','#263550')],darkcolor=[('!disabled','#263550')],selectbackground=[('!disabled','#354e73')],selectforeground=[('!disabled',TEXT)])
+        s.configure('Horizontal.TProgressbar',background=ACCENT,troughcolor='#162136',bordercolor='#162136',lightcolor=ACCENT,darkcolor=ACCENT,borderwidth=0,thickness=7)
         s.configure('Vertical.TScrollbar',background='#314660',troughcolor=BG,bordercolor=BG,arrowcolor=MUTED,lightcolor='#314660',darkcolor='#314660',borderwidth=0,width=12)
         s.map('Vertical.TScrollbar',background=[('pressed','#5e8aa8'),('active','#426381')],lightcolor=[('!disabled','#314660')],darkcolor=[('!disabled','#314660')],bordercolor=[('!disabled',BG)],arrowcolor=[('!disabled',MUTED)])
         s.configure('TCheckbutton',background=BG,foreground=TEXT,padding=5)
@@ -138,7 +141,7 @@ class App:
         self.footer=ttk.Frame(self.root,padding=(24,10,24,14));self.footer.pack(side='bottom',fill='x')
         content=ttk.Frame(self.root);content.pack(fill='both',expand=True)
         self.page_canvas=tk.Canvas(content,bg=BG,highlightthickness=0,bd=0)
-        scrollbar=ttk.Scrollbar(content,orient='vertical',command=self.page_canvas.yview)
+        scrollbar=RoundScrollbar(content,command=self.page_canvas.yview)
         scrollbar.pack(side='right',fill='y');self.page_canvas.pack(side='left',fill='both',expand=True)
         self.page_canvas.configure(yscrollcommand=scrollbar.set)
         page=ttk.Frame(self.page_canvas,padding=(24,24,14,18))
@@ -448,17 +451,16 @@ class App:
     def open_update_notice(self):
         if self.update_notice and not self.update_notice.closed and self.update_notice.phase in ('downloading','preparing','installing'):
             self.update_notice.show();return
-        self.show_update(None)
-        self.update_notice.set_loading()
+        self.show_update_prompt(None)
         self.update_check(True)
 
     def update_check(self,manual=False):
         self.update_manual_requested=self.update_manual_requested or manual
         if manual:
-            if not self.update_notice or self.update_notice.closed:self.show_update(None)
-            self.update_notice.show();self.update_notice.set_loading()
+            self.show_update_prompt(None)
+            self.update_prompt.set_loading()
         if self.update_busy:
-            if self.update_notice and not self.update_notice.closed:self.update_notice.status.set('업데이트 정보를 확인 중입니다. 잠시 기다려 주세요.')
+            if self.update_prompt and not self.update_prompt.closed:self.update_prompt.status.set('업데이트 정보를 확인 중입니다. 잠시 기다려 주세요.')
             return
         self.update_busy=True;self.update_text.set('업데이트 확인 중…')
         def check():
@@ -466,6 +468,17 @@ class App:
             except Exception as e:self.events.put(('update',(None,str(e))))
         threading.Thread(target=check,daemon=True).start()
         if not manual:self.root.after(5*60*1000,self.update_check)
+
+    def show_update_prompt(self,result=None):
+        if self.update_prompt and not self.update_prompt.closed:
+            if result:self.update_prompt.set_release(result)
+            self.update_prompt.show();return
+        self.update_prompt=UpdatePrompt(self,result)
+
+    def update_from_prompt(self,release):
+        self.show_update(release)
+        self.update_notice.begin()
+        return self.update_notice.phase in ('downloading','preparing','installing')
 
     @property
     def data_path(self):
@@ -494,23 +507,25 @@ class App:
                 self.update_busy=False;result,error=value
                 manual=self.update_manual_requested;self.update_manual_requested=False
                 notice=self.update_notice if self.update_notice and not self.update_notice.closed else None
+                prompt=self.update_prompt if self.update_prompt and not self.update_prompt.closed else None
                 if error:
                     self.update_text.set('업데이트 연결 실패 · 다시 확인 가능')
                     if manual:
-                        if notice is None:self.show_update(None);notice=self.update_notice
-                        notice.set_check_error(error)
+                        if prompt is None:self.show_update_prompt(None);prompt=self.update_prompt
+                        prompt.set_check_error(error)
                 elif result:
                     self.latest_release=result
                     newer=result.get('is_new',True)
                     self.update_text.set(result['version']+(' 업데이트 필요' if newer else ' 최신 버전 사용 중'))
                     if notice:notice.set_release(result)
+                    if prompt:prompt.set_release(result)
                     if manual or (newer and result['version'] not in self.seen_updates):
-                        self.seen_updates.add(result['version']);self.show_update(result)
+                        self.seen_updates.add(result['version']);self.show_update_prompt(result)
                 else:
                     self.update_text.set('등록된 최신 배포를 찾지 못했습니다.')
                     if manual:
-                        if notice is None:self.show_update(None);notice=self.update_notice
-                        notice.set_no_release()
+                        if prompt is None:self.show_update_prompt(None);prompt=self.update_prompt
+                        prompt.set_no_release()
         keys=self.win.keys()
         if keys[1] and not self.previous_keys[1]:self.stop()
         elif keys[0] and not self.previous_keys[0]:
@@ -560,7 +575,9 @@ if __name__=='__main__':
         update_ui_report=exercise_update_buttons(app)
         from ui_style_test import exercise_style_controls
         style_report=exercise_style_controls(app,sys.argv[sys.argv.index('--report')+1])
-        report={'ok':True,'version':VERSION,'templates':len(detector.data),'ui':'created','platform':sys.platform,'update_ui':update_ui_report,'style_ui':style_report}
+        from ui_dialog_test import exercise_update_dialogs
+        dialog_report=exercise_update_dialogs(app,sys.argv[sys.argv.index('--report')+1])
+        report={'ok':True,'version':VERSION,'templates':len(detector.data),'ui':'created','platform':sys.platform,'update_ui':update_ui_report,'style_ui':style_report,'dialog_ui':dialog_report}
         out=Path(sys.argv[sys.argv.index('--report')+1])
         out.write_text(json.dumps(report),encoding='utf-8')
         app.closing=True;root.destroy()

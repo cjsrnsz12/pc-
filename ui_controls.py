@@ -147,3 +147,71 @@ def smooth_buttons(parent):
         if isinstance(child,ttk.Button) and not hasattr(child,'_transition'):
             child._transition=ButtonTransition(child)
         smooth_buttons(child)
+
+
+class RoundScrollbar(tk.Canvas):
+    """Arrow-free vertical scrollbar with a rounded, softly highlighted thumb."""
+    def __init__(self,parent,command,bg=BG,width=14):
+        super().__init__(parent,width=width,bg=bg,bd=0,highlightthickness=0,takefocus=False)
+        self.command=command;self.first=0.;self.last=1.;self.hover=0.;self.dragging=False;self._job=None
+        self.thumb_start=6.;self.thumb_size=32.;self._drag_offset=0.
+        self._track=self.create_line(7,6,7,38,fill='#19283f',width=3,capstyle='round')
+        self._thumb=self.create_line(7,6,7,38,fill='#57758e',width=6,capstyle='round')
+        self.bind('<Configure>',lambda _:self.draw())
+        self.bind('<Enter>',lambda _:self.animate(1.));self.bind('<Leave>',lambda _:self.animate(0.))
+        self.bind('<Button-1>',self.press);self.bind('<B1-Motion>',self.drag);self.bind('<ButtonRelease-1>',self.release)
+        self.bind('<MouseWheel>',self.wheel);self.bind('<Destroy>',self.destroy_scroll)
+
+    def set(self,first,last):
+        self.first=max(0.,min(1.,float(first)));self.last=max(self.first,min(1.,float(last)));self.draw()
+
+    def draw(self):
+        h=max(20,self.winfo_height());w=max(10,self.winfo_width());track=max(1,h-12)
+        fraction=self.last-self.first
+        self.thumb_size=min(track,max(32,track*fraction))
+        self.thumb_start=6+(track-self.thumb_size)*self.first/max(.0001,1-fraction)
+        x=w/2
+        self.coords(self._track,x,6,x,h-6)
+        radius=3
+        self.coords(self._thumb,x,self.thumb_start+radius,x,self.thumb_start+self.thumb_size-radius)
+        color=blend('#57758e','#76e5d0',self.hover)
+        self.itemconfigure(self._thumb,state='hidden' if fraction>=.999 else 'normal',fill='#b29bf4' if self.dragging else color)
+
+    def animate(self,target):
+        if self.dragging:return
+        if self._job:self.after_cancel(self._job)
+        initial=self.hover;start=time.monotonic()
+        def tick():
+            t=min(1.,(time.monotonic()-start)/.13)
+            self.hover=initial+(target-initial)*(1-(1-t)**3);self.draw()
+            self._job=self.after(16,tick) if t<1 else None
+        tick()
+
+    def move_to(self,top):
+        fraction=self.last-self.first
+        if fraction>=.999:return
+        space=max(1,self.winfo_height()-12-self.thumb_size)
+        position=max(0.,min(1.,(top-6)/space))*(1-fraction)
+        self.command('moveto',position)
+
+    def press(self,event):
+        if self.last-self.first>=.999:return 'break'
+        self.dragging=True
+        if self.thumb_start<=event.y<=self.thumb_start+self.thumb_size:self._drag_offset=event.y-self.thumb_start
+        else:self._drag_offset=self.thumb_size/2;self.move_to(event.y-self._drag_offset)
+        self.draw();return 'break'
+
+    def drag(self,event):
+        if self.dragging:self.move_to(event.y-self._drag_offset)
+        return 'break'
+
+    def release(self,event):
+        self.dragging=False
+        x,y=self.winfo_pointerxy();self.animate(1. if self.winfo_containing(x,y) is self else 0.)
+        self.draw();return 'break'
+
+    def wheel(self,event):
+        self.command('scroll',-int(event.delta/120),'units');return 'break'
+
+    def destroy_scroll(self,event):
+        if event.widget is self and self._job:self.after_cancel(self._job);self._job=None
