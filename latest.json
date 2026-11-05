@@ -1,7 +1,7 @@
 {
-  "version": "1.0.5",
-  "title": "필요한 권한 알림 및 관리자 권한 재실행 안내",
-  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.0.5",
-  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.0.5/AbyssHelper.exe",
-  "notes": "앱·게임 권한 확인, 오류 5 원인 안내, 관리자 권한 재실행 버튼과 UAC 안내, 폴더 쓰기 권한 구분"
+  "version": "1.0.6",
+  "title": "제목 표시줄 유지 및 권한 알림",
+  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.0.6",
+  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.0.6/AbyssHelper.exe",
+  "notes": "게임 이름·최소화·최대화·닫기 버튼 유지, 내용 영역 800×1000, 권한 안내·관리자 재실행 기능 포함"
 }

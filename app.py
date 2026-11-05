@@ -303,7 +303,7 @@ class App:
         try:
             info=self.win.diagnostics(hwnd)
             # Persistent borderless or fixed-style windows require a real frame change.
-            if info['fullscreen_like'] or not (int(info['style'],16)&0x00C00000):
+            if info['fullscreen_like'] or (int(info['style'],16)&0x00C00000)!=0x00C00000:
                 self.win.make_windowed(hwnd)
                 self.log('테두리 없는 창/고정 창의 스타일을 보정했습니다.')
             self.win.resize(hwnd)
@@ -315,15 +315,23 @@ class App:
         if self.closing:return
         try:
             self.win.ensure_game(hwnd)
-            _,_,w,h=self.win.rect(hwnd)
+            left,top,w,h=self.win.rect(hwnd)
             self.log(f'창 맞춤 검증 {attempt+1}: 실제 게임 영역 {w}×{h}')
+            if (int(self.win.diagnostics(hwnd)['style'],16)&0x00C00000)!=0x00C00000:
+                raise WindowError('게임이 제목 표시줄을 다시 숨겼습니다. 제목 표시줄을 유지할 수 있는 화면 모드인지 확인하세요.')
             if (w,h)!=(800,1000):
                 if attempt<3:
                     self.win.resize(hwnd,correction=True)
                     self.root.after(650,lambda:self.verify_size(hwnd,attempt+1));return
                 raise WindowError(f'실제 화면이 {w}×{h}로 유지됩니다. 게임이 전체 화면/고정 해상도로 되돌리거나 크기 변경을 제한하고 있습니다. 자동 전환이 지원되지 않으면 게임 설정에서 디스플레이 모드를 변경해야 합니다.')
+            _,work=self.win.monitor_info(hwnd)
+            if left<work[0] or top<work[1] or left+w>work[2] or top+h>work[3]:
+                if attempt<3:
+                    self.win.resize(hwnd,correction=True)
+                    self.root.after(650,lambda:self.verify_size(hwnd,attempt+1));return
+                raise WindowError('제목 표시줄은 유지했지만 게임 화면 일부가 작업 표시줄이나 화면 경계에 가려집니다. 화면 해상도 또는 작업 표시줄 자동 숨김 설정을 확인하세요.')
             self.refresh();self.sizing_finished()
-            self.log('자동 창 맞추기 완료: 실제 게임 화면 800×1000 확인.')
+            self.log('자동 창 맞추기 완료: 제목 표시줄 유지 + 실제 게임 화면 800×1000 확인.')
             self.log('창 맞춤 결과: '+json.dumps(self.win.diagnostics(hwnd),ensure_ascii=False))
             self.detail.set('게임 화면 800 × 1000 확인 완료')
         except WindowError as e:self.sizing_error(hwnd,e)

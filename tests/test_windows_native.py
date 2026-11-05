@@ -39,11 +39,15 @@ def test_native_resize_restores_and_sizes_client(monkeypatch,native_root):
         for mode in [1,2,3]: # normal, minimized, maximized
             win.u.ShowWindow(hwnd,mode)
             root.update()
-            win.resize(hwnd)
+            try:win.resize(hwnd)
+            except WindowError as error:
+                assert '제목 표시줄' in str(error) and '작업 영역' in str(error)
+                return
             root.update()
             if win.rect(hwnd)[2:]!=(800,1000):
                 win.resize(hwnd,correction=True);root.update()
             assert win.rect(hwnd)[2:]==(800,1000)
+            assert win.u.GetWindowLongW(hwnd,-16)&0x00C00000
     finally:
         root.destroy()
 

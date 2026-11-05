@@ -3,7 +3,7 @@ import sys
 import ctypes as C
 from ctypes import wintypes as W
 from game_identity import is_game_window
-from window_sizing import covers_monitor, fit_position
+from window_sizing import covers_monitor, fit_framed_position
 from privileges import process_elevated
 
 
@@ -176,15 +176,13 @@ class Windows:
             self.u.SendInput(2,C.cast(C.byref(events,2*C.sizeof(INPUT)),C.POINTER(INPUT)),C.sizeof(INPUT))
             raise WindowError('Alt+Enter 전환 입력이 거부되었습니다. 게임과 앱의 실행 권한 차이를 확인하세요.')
 
-    def make_windowed(self, hwnd, borderless=False):
+    def make_windowed(self, hwnd):
         self.ensure_game(hwnd)
         self.require_control_permission(hwnd)
         self.u.ShowWindow(hwnd,9)
         style=self.u.GetWindowLongW(hwnd,-16)&0xffffffff
         # A borderless/pop-up window needs a frame change, not just SetWindowPos.
         desired=(style&~(0x80000000|0x01000000|0x20000000))|0x00CF0000
-        if borderless:
-            desired=(desired&~0x00CF0000)|0x80000000
         C.set_last_error(0)
         previous=self.u.SetWindowLongW(hwnd,-16,C.c_long(desired).value)
         error=C.get_last_error()
@@ -200,6 +198,9 @@ class Windows:
         self.require_control_permission(hwnd)
         self.u.ShowWindow(hwnd,9)
         style=self.u.GetWindowLongW(hwnd,-16)
+        if (style&0x00C00000)!=0x00C00000:
+            self.make_windowed(hwnd)
+            style=self.u.GetWindowLongW(hwnd,-16)
         exstyle=self.u.GetWindowLongW(hwnd,-20)
         rect=W.RECT(0,0,800,1000)
         has_menu=bool(self.u.GetMenu(hwnd))
@@ -219,18 +220,12 @@ class Windows:
         if correction:
             _,_,cw,ch=self.rect(hwnd)
             width,height=outer.right-outer.left+800-cw,outer.bottom-outer.top+1000-ch
-        _,work=self.monitor_info(hwnd)
-        if (width>work[2]-work[0] or height>work[3]-work[1]) and work[2]-work[0]>=800 and work[3]-work[1]>=1000:
-            # A 1080p desktop may fit the client but not a caption plus taskbar.
-            self.make_windowed(hwnd,borderless=True)
-            ex=self.u.GetWindowLongW(hwnd,-20)&0xffffffff
-            C.set_last_error(0)
-            previous=self.u.SetWindowLongW(hwnd,-20,C.c_long(ex&~0x00000301).value)
-            if not previous and C.get_last_error():
-                raise WindowError('테두리 없는 창의 바깥 여백 제거에 실패했습니다.')
-            width,height=800,1000
-            self.u.SetWindowPos(hwnd,None,0,0,0,0,0x0001|0x0002|0x0004|0x0010|0x0020)
-        try:x,y=fit_position((outer.left,outer.top),(width,height),work)
+        monitor,work=self.monitor_info(hwnd)
+        insets=(-rect.left,-rect.top,rect.right-800,rect.bottom-1000)
+        if correction:
+            cx,cy,cw,ch=self.rect(hwnd)
+            insets=(cx-outer.left,cy-outer.top,outer.right-cx-cw,outer.bottom-cy-ch)
+        try:x,y=fit_framed_position((outer.left,outer.top),(width,height),work,monitor,insets)
         except ValueError as e:raise WindowError(str(e)) from e
         if not self.u.SetWindowPos(hwnd,None,x,y,width,height,0x0004|0x0010):
             error=C.get_last_error()
