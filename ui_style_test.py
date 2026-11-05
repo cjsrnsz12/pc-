@@ -36,8 +36,9 @@ def exercise_style_controls(app,report_path):
     # Capture only this test app, for visual inspection of the native layout.
     hwnd=app.win.u.GetAncestor(root.winfo_id(),2);rect=W.RECT();origin=W.POINT()
     app.win.u.GetClientRect(hwnd,C.byref(rect));app.win.u.ClientToScreen(hwnd,C.byref(origin))
+    assert app.footer.winfo_rooty()+app.footer.winfo_height()<=origin.y+rect.bottom+1
     screenshot=Path(report_path).with_suffix('.png')
     with mss.mss() as capture:
         shot=capture.grab({'left':origin.x,'top':origin.y,'width':rect.right,'height':rect.bottom})
         Image.frombytes('RGB',shot.size,shot.rgb).save(screenshot)
-    return {'hover_stays_dark':True,'check_mark':'tick','disabled_click_ignored':True,'button_transition':True,'native_preview':str(screenshot)}
+    return {'hover_stays_dark':True,'check_mark':'tick','disabled_click_ignored':True,'button_transition':True,'native_preview':str(screenshot),'footer_visible':True}

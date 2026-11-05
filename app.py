@@ -84,8 +84,12 @@ class App:
         except (ValueError,OSError):
             self.settings = {}
         root.title('어비스 헬퍼 · PC')
-        root.geometry('820x950')
-        root.minsize(760,850)
+        try:
+            _,work=self.win.monitor_info(self.win.u.GetAncestor(root.winfo_id(),2))
+        except Exception:work=(0,0,root.winfo_screenwidth(),root.winfo_screenheight())
+        width=min(820,max(600,work[2]-work[0]-48));height=min(950,max(480,work[3]-work[1]-56))
+        root.geometry(f'{width}x{height}+{work[0]+24}+{work[1]+12}')
+        root.minsize(min(760,width),min(640,height))
         root.configure(bg=BG)
         self._window_icon=ImageTk.PhotoImage(app_icon(64),master=root)
         root.iconphoto(True,self._window_icon)
@@ -109,7 +113,7 @@ class App:
         s.theme_use('clam')
         s.configure('.',font=('맑은 고딕',10),background=BG,foreground=TEXT)
         s.configure('TFrame',background=BG)
-        s.configure('Card.TFrame',background=PANEL,relief='solid',borderwidth=1)
+        s.configure('Card.TFrame',background=PANEL,relief='solid',borderwidth=1,bordercolor='#304565',lightcolor='#243750',darkcolor='#152238')
         s.configure('TLabel',background=BG,foreground=TEXT)
         s.configure('Muted.TLabel',foreground=MUTED)
         s.configure('Title.TLabel',font=('맑은 고딕',24,'bold'))
@@ -129,7 +133,17 @@ class App:
         root.option_add('*TCombobox*Listbox.foreground',TEXT)
 
     def build(self):
-        page=ttk.Frame(self.root,padding=24);page.pack(fill='both',expand=True)
+        self.footer=ttk.Frame(self.root,padding=(24,10,24,14));self.footer.pack(side='bottom',fill='x')
+        content=ttk.Frame(self.root);content.pack(fill='both',expand=True)
+        self.page_canvas=tk.Canvas(content,bg=BG,highlightthickness=0,bd=0)
+        scrollbar=ttk.Scrollbar(content,orient='vertical',command=self.page_canvas.yview)
+        scrollbar.pack(side='right',fill='y');self.page_canvas.pack(side='left',fill='both',expand=True)
+        self.page_canvas.configure(yscrollcommand=scrollbar.set)
+        page=ttk.Frame(self.page_canvas,padding=(24,24,14,18))
+        window=self.page_canvas.create_window(0,0,anchor='nw',window=page)
+        page.bind('<Configure>',lambda _:self.page_canvas.configure(scrollregion=self.page_canvas.bbox('all')))
+        self.page_canvas.bind('<Configure>',lambda e:self.page_canvas.itemconfigure(window,width=e.width))
+        self.root.bind_all('<MouseWheel>',self.scroll_page,add='+')
         self.header=LauncherHeader(page,VERSION);self.header.pack(fill='x',pady=(0,18))
         card=ttk.Frame(page,style='Card.TFrame',padding=18);card.pack(fill='x')
         ttk.Label(card,text='●  CURRENT STATUS  /  현재 상태',style='Card.TLabel').pack(anchor='w')
@@ -168,12 +182,17 @@ class App:
         ttk.Button(log_header,text='기록 폴더',command=lambda:os.startfile(DATA)).pack(side='right')
         self.log_box=tk.Text(page,height=8,background='#09101b',foreground='#b9cbea',font=('맑은 고딕',9),relief='flat',padx=12,pady=10,wrap='word',state='disabled')
         self.log_box.pack(fill='both',expand=True,pady=(8,12))
-        bottom=ttk.Frame(page);bottom.pack(fill='x')
+        bottom=self.footer
         self.update_text=tk.StringVar(value='GitHub 업데이트 안내 연결됨')
         ttk.Label(bottom,textvariable=self.update_text,style='Muted.TLabel').pack(side='left')
         self.update_button=ttk.Button(bottom,text='업데이트 소식',command=self.open_update_notice);self.update_button.pack(side='right')
         ttk.Button(bottom,text='권한 확인',command=self.check_permissions).pack(side='right',padx=(0,8))
         smooth_buttons(self.root)
+
+    def scroll_page(self,event):
+        if event.widget.winfo_toplevel() is not self.root:return
+        if isinstance(event.widget,(tk.Text,ttk.Combobox)):return
+        self.page_canvas.yview_scroll(-int(event.delta/120),'units')
 
     def destination_changed(self,_=None):
         self.difficulty.set({'허상의 정박지':'매우 어려움','광기의 동굴':'어려움','흩어진 물길':'입문'}[self.dungeon.get()])
