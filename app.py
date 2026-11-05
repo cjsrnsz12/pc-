@@ -42,6 +42,7 @@ class App:
         self.stop_event = threading.Event()
         self.worker = None
         self.running = False
+        self.sizing_busy = False
         self.closing = False
         self.update_busy = False
         self.seen_updates = set()
@@ -173,29 +174,74 @@ class App:
         self.win.ensure_game(hwnd)
         return hwnd
 
+    def sizing_finished(self):
+        self.sizing_busy=False
+        self.resize_button.configure(state='normal')
+        self.start_button.configure(state='normal')
+
+    def sizing_error(self,hwnd,error):
+        try:self.log('창 맞춤 진단: '+json.dumps(self.win.diagnostics(hwnd),ensure_ascii=False))
+        except Exception:LOG.exception('Window diagnostics failed')
+        self.log('창 맞춤 실패: '+str(error))
+        self.detail.set('창 맞추기 실패 — 기록에서 원인을 확인하세요.')
+        self.sizing_finished()
+        messagebox.showerror('자동 창 맞추기 진단',str(error)+'\n\n상세 정보는 기록 폴더의 app.log에 저장했습니다.',parent=self.root)
+
     def resize(self):
-        if self.running:return
+        if self.running or self.sizing_busy:return
+        hwnd=None
         try:
-            # Refresh here: the game may have been opened after the helper.
-            self.refresh()
-            hwnd=self.selected();self.win.resize(hwnd)
-            self.detail.set('마비노기 모바일 창을 자동으로 맞추는 중…')
-            self.root.after(400,lambda:self.verify_size(hwnd))
-        except WindowError as e:messagebox.showerror('크기 설정',str(e),parent=self.root)
+            self.refresh();hwnd=self.selected()
+            self.log('창 맞춤 시작: '+json.dumps(self.win.diagnostics(hwnd),ensure_ascii=False))
+            self.sizing_busy=True
+            self.resize_button.configure(state='disabled');self.start_button.configure(state='disabled')
+            info=self.win.prepare_resize(hwnd)
+            if info['fullscreen_like'] and info['client'] != [800,1000]:
+                self.detail.set('전체 화면 감지 → 게임 활성화 및 창 모드 전환 중…')
+                self.root.after(300,lambda:self.exit_fullscreen(hwnd))
+            else:self.apply_resize(hwnd)
+        except WindowError as e:
+            if hwnd is None:
+                messagebox.showerror('게임 창 확인',str(e),parent=self.root)
+            else:self.sizing_error(hwnd,e)
+
+    def exit_fullscreen(self,hwnd):
+        if self.closing:return
+        try:
+            self.win.toggle_fullscreen(hwnd)
+            self.log('전체 화면 전환: 게임에 Alt+Enter를 한 번 전달했습니다.')
+            self.root.after(1400,lambda:self.apply_resize(hwnd))
+        except WindowError as e:self.sizing_error(hwnd,e)
+
+    def apply_resize(self,hwnd):
+        if self.closing:return
+        try:
+            info=self.win.diagnostics(hwnd)
+            # Persistent borderless or fixed-style windows require a real frame change.
+            if info['fullscreen_like'] or not (int(info['style'],16)&0x00C00000):
+                self.win.make_windowed(hwnd)
+                self.log('테두리 없는 창/고정 창의 스타일을 보정했습니다.')
+            self.win.resize(hwnd)
+            self.detail.set('800×1000 적용 후 실제 화면 크기 확인 중…')
+            self.root.after(600,lambda:self.verify_size(hwnd))
+        except WindowError as e:self.sizing_error(hwnd,e)
 
     def verify_size(self,hwnd,attempt=0):
+        if self.closing:return
         try:
+            self.win.ensure_game(hwnd)
             _,_,w,h=self.win.rect(hwnd)
+            self.log(f'창 맞춤 검증 {attempt+1}: 실제 게임 영역 {w}×{h}')
             if (w,h)!=(800,1000):
-                if attempt < 3:
+                if attempt<3:
                     self.win.resize(hwnd,correction=True)
-                    self.root.after(400,lambda:self.verify_size(hwnd,attempt+1))
-                    return
-                raise WindowError(f'현재 게임 화면은 {w}×{h}입니다. 게임을 창 모드로 바꾸고 다시 눌러 주세요.')
-            self.refresh()
-            self.log('마비노기 모바일을 자동으로 찾아 실제 게임 화면 800×1000 맞추기 완료.')
+                    self.root.after(650,lambda:self.verify_size(hwnd,attempt+1));return
+                raise WindowError(f'실제 화면이 {w}×{h}로 유지됩니다. 게임이 전체 화면/고정 해상도로 되돌리거나 크기 변경을 제한하고 있습니다. 자동 전환이 지원되지 않으면 게임 설정에서 디스플레이 모드를 변경해야 합니다.')
+            self.refresh();self.sizing_finished()
+            self.log('자동 창 맞추기 완료: 실제 게임 화면 800×1000 확인.')
+            self.log('창 맞춤 결과: '+json.dumps(self.win.diagnostics(hwnd),ensure_ascii=False))
             self.detail.set('게임 화면 800 × 1000 확인 완료')
-        except WindowError as e:messagebox.showerror('크기 확인',str(e),parent=self.root)
+        except WindowError as e:self.sizing_error(hwnd,e)
 
     def lock_controls(self,running):
         for w in (self.window_box,self.dungeon_box,self.difficulty_box):w.configure(state='disabled' if running else 'readonly')
@@ -203,7 +249,7 @@ class App:
         self.stop_button.configure(state='normal' if running else 'disabled')
 
     def start(self):
-        if self.running:return
+        if self.running or self.sizing_busy:return
         try:
             self.refresh()
             hwnd=self.selected()

@@ -3,6 +3,7 @@ import sys
 import ctypes as C
 from ctypes import wintypes as W
 from game_identity import is_game_window
+from window_sizing import covers_monitor, fit_position
 
 
 def dpi_aware():
@@ -31,6 +32,7 @@ class Windows:
         self.u.GetWindowRect.argtypes = [W.HWND,C.POINTER(W.RECT)]
         self.u.MonitorFromWindow.argtypes = [W.HWND,W.DWORD]
         self.u.MonitorFromWindow.restype = W.HANDLE
+        if hasattr(self.u,'GetDpiForWindow'):self.u.GetDpiForWindow.argtypes=[W.HWND]
         self.u.GetForegroundWindow.restype = W.HWND
         self.u.GetAncestor.argtypes = [W.HWND, W.UINT]
         self.u.GetAncestor.restype = W.HWND
@@ -43,6 +45,8 @@ class Windows:
         self.u.ShowWindow.argtypes = [W.HWND,C.c_int]
         self.u.AdjustWindowRectEx.argtypes = [C.POINTER(W.RECT),W.DWORD,W.BOOL,W.DWORD]
         self.u.GetWindowLongW.argtypes = [W.HWND,C.c_int]
+        self.u.SetWindowLongW.argtypes = [W.HWND,C.c_int,W.LONG]
+        self.u.SetForegroundWindow.argtypes = [W.HWND]
         self.u.SetWindowPos.argtypes = [W.HWND,W.HWND,C.c_int,C.c_int,C.c_int,C.c_int,W.UINT]
         self.callback = C.WINFUNCTYPE(W.BOOL, W.HWND, W.LPARAM)
         self.u.GetWindowTextLengthW.argtypes = [W.HWND]
@@ -98,38 +102,115 @@ class Windows:
             raise WindowError('게임 화면 위치를 읽지 못했습니다.')
         return (p.x,p.y,r.right,r.bottom)
 
+    def monitor_info(self, hwnd):
+        class MONITORINFO(C.Structure):
+            _fields_ = [('cbSize',W.DWORD),('rcMonitor',W.RECT),('rcWork',W.RECT),('dwFlags',W.DWORD)]
+        info=MONITORINFO();info.cbSize=C.sizeof(info)
+        self.u.GetMonitorInfoW.argtypes=[W.HANDLE,C.POINTER(MONITORINFO)]
+        if not self.u.GetMonitorInfoW(self.u.MonitorFromWindow(hwnd,2),C.byref(info)):
+            raise WindowError('모니터 정보를 읽지 못했습니다.')
+        rect=lambda r:(r.left,r.top,r.right,r.bottom)
+        return rect(info.rcMonitor),rect(info.rcWork)
+
+    def diagnostics(self, hwnd):
+        title,path=self.identity(hwnd)
+        outer=W.RECT();self.u.GetWindowRect(hwnd,C.byref(outer))
+        client=W.RECT();self.u.GetClientRect(hwnd,C.byref(client))
+        style=self.u.GetWindowLongW(hwnd,-16)&0xffffffff
+        monitor,work=self.monitor_info(hwnd)
+        dpi=self.u.GetDpiForWindow(hwnd) if hasattr(self.u,'GetDpiForWindow') else 96
+        box=(outer.left,outer.top,outer.right,outer.bottom)
+        return {'title':title,'executable':path,'client':[client.right,client.bottom],
+                'outer':box,'style':hex(style),'dpi':dpi,'monitor':monitor,'work':work,
+                'fullscreen_like':covers_monitor(box,monitor),'minimized':bool(self.u.IsIconic(hwnd))}
+
+    def prepare_resize(self, hwnd):
+        self.ensure_game(hwnd)
+        self.u.ShowWindow(hwnd,9)
+        info=self.diagnostics(hwnd)
+        if info['fullscreen_like']:
+            self.u.SetForegroundWindow(hwnd)
+        return info
+
+    def toggle_fullscreen(self, hwnd):
+        self.ensure_game(hwnd)
+        if not self.active(hwnd):
+            raise WindowError('전체 화면 전환을 위해 게임을 활성화하지 못했습니다. 게임을 한 번 클릭한 뒤 다시 맞추기를 눌러 주세요.')
+        class KEYBDINPUT(C.Structure):
+            _fields_=[('wVk',W.WORD),('wScan',W.WORD),('dwFlags',W.DWORD),('time',W.DWORD),('dwExtraInfo',C.c_size_t)]
+        class MOUSEINPUT(C.Structure):
+            _fields_=[('dx',W.LONG),('dy',W.LONG),('mouseData',W.DWORD),('dwFlags',W.DWORD),('time',W.DWORD),('dwExtraInfo',C.c_size_t)]
+        class U(C.Union):
+            _fields_=[('ki',KEYBDINPUT),('mi',MOUSEINPUT)]
+        class INPUT(C.Structure):
+            _anonymous_=('union',)
+            _fields_=[('type',W.DWORD),('union',U)]
+        events=(INPUT*4)()
+        for i,(vk,flags) in enumerate([(0x12,0),(0x0D,0),(0x0D,2),(0x12,2)]):
+            events[i].type=1;events[i].ki=KEYBDINPUT(vk,0,flags,0,0)
+        self.u.SendInput.argtypes=[W.UINT,C.POINTER(INPUT),C.c_int]
+        if self.u.SendInput(4,events,C.sizeof(INPUT))!=4:
+            # Release modifiers even if only a prefix of the batch was accepted.
+            self.u.SendInput(2,C.cast(C.byref(events,2*C.sizeof(INPUT)),C.POINTER(INPUT)),C.sizeof(INPUT))
+            raise WindowError('Alt+Enter 전환 입력이 거부되었습니다. 게임과 앱의 실행 권한 차이를 확인하세요.')
+
+    def make_windowed(self, hwnd, borderless=False):
+        self.ensure_game(hwnd)
+        self.u.ShowWindow(hwnd,9)
+        style=self.u.GetWindowLongW(hwnd,-16)&0xffffffff
+        # A borderless/pop-up window needs a frame change, not just SetWindowPos.
+        desired=(style&~(0x80000000|0x01000000|0x20000000))|0x00CF0000
+        if borderless:
+            desired=(desired&~0x00CF0000)|0x80000000
+        C.set_last_error(0)
+        previous=self.u.SetWindowLongW(hwnd,-16,C.c_long(desired).value)
+        error=C.get_last_error()
+        if not previous and error:
+            raise WindowError(f'창 모드 스타일 적용 실패 (Windows 오류 {error}). 게임과 앱의 실행 권한을 확인하세요.')
+        if not self.u.SetWindowPos(hwnd,None,0,0,0,0,0x0001|0x0002|0x0004|0x0010|0x0020):
+            error=C.get_last_error()
+            self.u.SetWindowLongW(hwnd,-16,C.c_long(style).value)
+            raise WindowError(f'창 테두리 전환 실패 (Windows 오류 {error}).')
+
     def resize(self, hwnd, correction=False):
         self.ensure_game(hwnd)
         self.u.ShowWindow(hwnd,9)
-        style = self.u.GetWindowLongW(hwnd,-16)
-        exstyle = self.u.GetWindowLongW(hwnd,-20)
-        rect = W.RECT(0,0,800,1000)
-        has_menu = bool(self.u.GetMenu(hwnd))
-        try:
-            self.u.GetDpiForWindow.argtypes = [W.HWND]
-            dpi = self.u.GetDpiForWindow(hwnd)
-            self.u.AdjustWindowRectExForDpi.argtypes = [C.POINTER(W.RECT),W.DWORD,W.BOOL,W.DWORD,W.UINT]
-            self.u.AdjustWindowRectExForDpi(C.byref(rect),style,has_menu,exstyle,dpi)
-        except AttributeError:
-            self.u.AdjustWindowRectEx(C.byref(rect),style,has_menu,exstyle)
-        width,height = rect.right-rect.left,rect.bottom-rect.top
-        outer = W.RECT()
-        self.u.GetWindowRect(hwnd,C.byref(outer))
+        style=self.u.GetWindowLongW(hwnd,-16)
+        exstyle=self.u.GetWindowLongW(hwnd,-20)
+        rect=W.RECT(0,0,800,1000)
+        has_menu=bool(self.u.GetMenu(hwnd))
+        adjusted=False
+        if hasattr(self.u,'AdjustWindowRectExForDpi'):
+            self.u.GetDpiForWindow.argtypes=[W.HWND]
+            dpi=self.u.GetDpiForWindow(hwnd)
+            self.u.AdjustWindowRectExForDpi.argtypes=[C.POINTER(W.RECT),W.DWORD,W.BOOL,W.DWORD,W.UINT]
+            adjusted=bool(self.u.AdjustWindowRectExForDpi(C.byref(rect),style,has_menu,exstyle,dpi))
+        if not adjusted:
+            rect=W.RECT(0,0,800,1000)
+            adjusted=bool(self.u.AdjustWindowRectEx(C.byref(rect),style,has_menu,exstyle))
+        if not adjusted:
+            raise WindowError('DPI와 테두리 크기 계산에 실패했습니다.')
+        width,height=rect.right-rect.left,rect.bottom-rect.top
+        outer=W.RECT();self.u.GetWindowRect(hwnd,C.byref(outer))
         if correction:
-            _,_,cw,ch = self.rect(hwnd)
-            width,height = outer.right-outer.left+800-cw,outer.bottom-outer.top+1000-ch
-        class MONITORINFO(C.Structure):
-            _fields_ = [('cbSize',W.DWORD),('rcMonitor',W.RECT),('rcWork',W.RECT),('dwFlags',W.DWORD)]
-        info = MONITORINFO();info.cbSize = C.sizeof(info)
-        monitor = self.u.MonitorFromWindow(hwnd,2)
-        self.u.GetMonitorInfoW.argtypes = [W.HANDLE,C.POINTER(MONITORINFO)]
-        x,y = outer.left,outer.top
-        if self.u.GetMonitorInfoW(monitor,C.byref(info)):
-            r = info.rcWork
-            x = max(r.left,min(x,r.right-width))
-            y = max(r.top,min(y,r.bottom-height))
+            _,_,cw,ch=self.rect(hwnd)
+            width,height=outer.right-outer.left+800-cw,outer.bottom-outer.top+1000-ch
+        _,work=self.monitor_info(hwnd)
+        if (width>work[2]-work[0] or height>work[3]-work[1]) and work[2]-work[0]>=800 and work[3]-work[1]>=1000:
+            # A 1080p desktop may fit the client but not a caption plus taskbar.
+            self.make_windowed(hwnd,borderless=True)
+            ex=self.u.GetWindowLongW(hwnd,-20)&0xffffffff
+            C.set_last_error(0)
+            previous=self.u.SetWindowLongW(hwnd,-20,C.c_long(ex&~0x00000301).value)
+            if not previous and C.get_last_error():
+                raise WindowError('테두리 없는 창의 바깥 여백 제거에 실패했습니다.')
+            width,height=800,1000
+            self.u.SetWindowPos(hwnd,None,0,0,0,0,0x0001|0x0002|0x0004|0x0010|0x0020)
+        try:x,y=fit_position((outer.left,outer.top),(width,height),work)
+        except ValueError as e:raise WindowError(str(e)) from e
         if not self.u.SetWindowPos(hwnd,None,x,y,width,height,0x0004|0x0010):
-            raise WindowError('창 크기를 바꿀 수 없습니다. 게임을 창 모드로 설정하세요.')
+            error=C.get_last_error()
+            raise WindowError(f'창 크기 적용 실패 (Windows 오류 {error}). 게임이 크기 변경을 제한하거나 실행 권한이 다를 수 있습니다.')
 
     def active(self, hwnd):
         current = self.u.GetForegroundWindow()
