@@ -42,8 +42,8 @@ class UpdateNotice:
         for _,title,color in KINDS:ttk.Label(legend,text='● '+title,foreground=color).pack(side='left',padx=(0,18))
         notes_frame=ttk.Frame(frame);notes_frame.pack(fill='both',expand=True)
         self.notes=tk.Text(notes_frame,bg='#09101b',fg='#edf2ff',relief='flat',wrap='word',font=('맑은 고딕',10),padx=14,pady=12,state='disabled',height=6)
-        self.notes.pack(side='left',fill='both',expand=True)
         self.scroll=RoundScrollbar(notes_frame,command=self.notes.yview,bg='#09101b');self.scroll.pack(side='right',fill='y');self.notes.configure(yscrollcommand=self.scroll.set)
+        self.notes.pack(side='left',fill='both',expand=True)
         for kind,_,color in KINDS:
             self.notes.tag_configure(kind,foreground=color,spacing1=4,spacing3=8)
             self.notes.tag_configure(kind+'_heading',foreground=color,font=('맑은 고딕',12,'bold'),spacing1=12,spacing3=6)

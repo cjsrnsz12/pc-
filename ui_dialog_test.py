@@ -35,6 +35,9 @@ def exercise_update_dialogs(app,report_path):
         notice.dialog.geometry('600x450');root.update()
         assert inside(notice.primary,notice.dialog) and inside(notice.close_button,notice.dialog)
         assert isinstance(notice.scroll,RoundScrollbar)
+        assert notice.scroll.winfo_viewable() and notice.scroll.winfo_width()>=12
+        assert notice.scroll.last-notice.scroll.first<.999
+        assert notice.scroll.itemcget(notice.scroll._thumb,'state')=='normal'
         assert notice.scroll.cget('background')=='#09101b'
         hwnd=app.win.u.GetAncestor(notice.dialog.winfo_id(),2);rect=W.RECT();origin=W.POINT()
         app.win.u.GetClientRect(hwnd,C.byref(rect));app.win.u.ClientToScreen(hwnd,C.byref(origin))
