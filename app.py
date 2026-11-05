@@ -270,6 +270,7 @@ class App:
         for w in (self.window_box,self.dungeon_box,self.difficulty_box):w.configure(state='disabled' if running else 'readonly')
         for w in (self.refresh_button,self.resize_button,self.start_button,self.repeat_check,self.food_check):w.configure(state='disabled' if running else 'normal')
         self.stop_button.configure(state='normal' if running else 'disabled')
+        if self.installing:self.start_button.configure(state='disabled')
 
     def start(self):
         if self.running or self.sizing_busy or self.installing or self.closing:return
@@ -375,7 +376,10 @@ class App:
         state={'busy':False,'saved':None,'session':None}
         def close_dialog():
             cancel.set()
-            if state['session']:shutil.rmtree(state['session'],ignore_errors=True)
+            if state['session']:
+                self.installing=False
+                self.start_button.configure(state='normal')
+                shutil.rmtree(state['session'],ignore_errors=True)
             dialog.destroy()
         dialog.protocol('WM_DELETE_WINDOW',close_dialog)
         def start_download(auto=True):
@@ -386,6 +390,7 @@ class App:
             if auto:
                 session=DATA/'updates'/('session-'+uuid.uuid4().hex)
                 session.mkdir(parents=True);state['session']=session
+                self.installing=True
                 destination=session/'new.exe'
                 self.stop()
             else:
@@ -437,9 +442,13 @@ class App:
                     status.set(f'{100*done/total:.0f}%  ·  {done/1048576:.1f} / {total/1048576:.1f} MB')
                 else:
                     state['busy']=False;self.download_cancels.discard(cancel)
+                    if kind!='install_ready':
+                        self.installing=False
+                        self.start_button.configure(state='normal')
                     download_button.configure(state='normal');file_button.configure(state='normal');cancel_button.configure(state='disabled')
                     if kind=='install_ready':
                         if cancel.is_set():
+                            self.installing=False;self.start_button.configure(state='normal')
                             shutil.rmtree(Path(value).parent,ignore_errors=True);status.set('업데이트를 취소했습니다.');continue
                         try:
                             self.installing=True
@@ -447,7 +456,7 @@ class App:
                             status.set('설치 및 재실행 중…');self.log('업데이트 파일 확인 완료 — 앱을 종료하고 교체합니다.')
                             self.close();return
                         except Exception as e:
-                            self.installing=False;status.set('업데이트 시작 실패: '+str(e));LOG.exception('Installer launch failed')
+                            self.installing=False;self.start_button.configure(state='normal');status.set('업데이트 시작 실패: '+str(e));LOG.exception('Installer launch failed')
                     elif kind=='done':
                         state['saved']=value;progress['value']=100
                         status.set('다운로드 완료: '+str(value));folder_button.configure(state='normal')

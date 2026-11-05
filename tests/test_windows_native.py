@@ -5,11 +5,21 @@ import pytest
 pytestmark = pytest.mark.skipif(sys.platform != 'win32',reason='Windows native API test')
 
 
-def test_native_resize_restores_and_sizes_client(monkeypatch):
+@pytest.fixture(scope='module')
+def native_root():
+    from windows import dpi_aware
+    import tkinter as tk
+    dpi_aware()
+    root=tk.Tk();root.withdraw()
+    yield root
+    root.destroy()
+
+
+def test_native_resize_restores_and_sizes_client(monkeypatch,native_root):
     from windows import Windows, WindowError, dpi_aware
     import tkinter as tk
     dpi_aware()
-    root=tk.Tk()
+    root=tk.Toplevel(native_root)
     try:
         root.title('Abyss Helper sizing test')
         root.maxsize(4000,4000)
@@ -39,11 +49,11 @@ def test_native_resize_restores_and_sizes_client(monkeypatch):
 
 
 
-def test_native_borderless_conversion(monkeypatch):
+def test_native_borderless_conversion(monkeypatch,native_root):
     from windows import Windows, dpi_aware
     import tkinter as tk
     dpi_aware()
-    root=tk.Tk()
+    root=tk.Toplevel(native_root)
     try:
         root.title('Abyss Helper borderless test');root.overrideredirect(True)
         root.geometry('600x700');root.update()
