@@ -14,6 +14,7 @@ from updates import download_release, DownloadCancelled
 from installer import prepare_install, launch_installer
 from release_notes import KINDS, grouped_changes
 from version import VERSION
+from ui_controls import smooth_buttons
 
 
 @dataclass
@@ -54,6 +55,7 @@ class UpdateNotice:
         extra=ttk.Frame(frame);extra.pack(fill='x',pady=(8,0))
         self.file_button=ttk.Button(extra,text='파일만 다운로드',command=lambda:self.begin(False),state='disabled');self.file_button.pack(side='left')
         self.folder_button=ttk.Button(extra,text='저장 폴더 열기',command=lambda:os.startfile(self.saved.parent),state='disabled');self.folder_button.pack(side='left',padx=8)
+        smooth_buttons(self.dialog)
         if release:self.set_release(release)
         self.show();app.root.after(80,self.poll)
 

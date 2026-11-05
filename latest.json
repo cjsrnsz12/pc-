@@ -1,7 +1,7 @@
 {
-  "version": "1.0.7",
-  "title": "업데이트 알림창 및 버튼 반응 개선",
-  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.0.7",
-  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.0.7/AbyssHelper.exe",
-  "notes": "알림창 안의 업데이트 버튼, 최신 버전 내역만 색상별 표시, 숨겨진 창·진행 상태 복구 및 재시도"
+  "version": "1.0.8",
+  "title": "런처 테마·✓ 체크박스·부드러운 전환",
+  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.0.8",
+  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.0.8/AbyssHelper.exe",
+  "notes": "보라·민트 그라데이션과 전용 아이콘, 체크박스 흰 배경 수정, ✓ 표시와 버튼 전환 애니메이션"
 }

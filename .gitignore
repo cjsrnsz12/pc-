@@ -5,3 +5,5 @@ build/
 dist/
 *.spec
 .venv/
+
+build_icon.ico
