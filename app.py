@@ -446,7 +446,7 @@ class App:
                     if status!=last_status:self.events.put(('status',status));last_status=status
                     if action and not self.stop_event.is_set():
                         self.win.click(hwnd,action.point)
-                        self.events.put(('log',action.message))
+                        self.events.put(('log',action.message+(f' / 찾은 버튼 위치 {action.point}' if action.key=='abyss' else '')))
                     if controller.state==State.BLOCKED:
                         self.events.put(('log',controller.reason));break
                     self.stop_event.wait(.25)

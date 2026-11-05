@@ -71,6 +71,20 @@ class Vision:
             mask = (h > 75) & (h < 125) & (s > 100) & (v > 100)
         return float(np.mean(mask))
 
+    def menu_target(self):
+        # Banner height is variable. Match the actual icon/label and corroborate its row.
+        if self.hit('menu_close') is None:return None
+        left=self.hit('menu_field_boss');right=self.hit('menu_raid')
+        candidates=[]
+        for name in ('abyss','abyss_collab'):
+            hit=self.hit(name)
+            if hit is None:continue
+            x,y=hit.center
+            left_ok=left is not None and 50<=x-left.center[0]<=95 and abs(y-left.center[1])<=13
+            right_ok=right is not None and 115<=right.center[0]-x<=170 and abs(y-right.center[1])<=13
+            if left_ok or right_ok:candidates.append(hit)
+        return max(candidates,key=lambda h:h.score) if candidates else None
+
     @staticmethod
     def combat_hud(frame):
         # World objects alone must not latch the entire run into combat.
@@ -146,7 +160,7 @@ class Vision:
             if (h := self.hit('list_' + DUNGEONS[dungeon])):
                 p['dungeon'] = h.center
                 return Observation('list', p)
-        if (h := self.hit('abyss')):
+        if (h := self.menu_target()):
             return Observation('menu', {'abyss': h.center})
         # Health bar and game menu together establish a live game HUD.
         hud = self.color_fraction((80,85,214,105),'green') > .10 or self.color_fraction((80,50,220,78),'green') > .10

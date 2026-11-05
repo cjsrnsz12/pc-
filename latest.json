@@ -1,7 +1,7 @@
 {
-  "version": "1.0.13",
-  "title": "혼잡한 장소의 시작 정지 판정 개선",
-  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.0.13",
-  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.0.13/AbyssHelper.exe",
-  "notes": "이름표·주변 캐릭터 변화 제외, 배경·미니맵 이동 확인, 잘못된 전투 UI 판정 보완, 정지 4초 유지"
+  "version": "1.0.14",
+  "title": "일반·콜라보 메뉴 위치 자동 탐색",
+  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.0.14",
+  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.0.14/AbyssHelper.exe",
+  "notes": "어비스 아이콘·글자를 넓게 탐색하고 주변 메뉴를 교차 확인, 실제 버튼 위치 클릭, 이벤트 배너 위치 변화 지원"
 }
