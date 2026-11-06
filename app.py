@@ -34,6 +34,7 @@ import numpy as np
 from PIL import Image, ImageTk
 from engine import Controller, Observation, State
 from recognition_timing import poll_interval, same_detection
+from list_centering import ListCentering
 from startup_notes import needs_notice, installed_release, mark_shown
 from vision import Vision, DUNGEONS, DIFFICULTIES
 from windows import Windows, WindowError
@@ -446,6 +447,7 @@ class App:
             controller=Controller(config['dungeon'],config['difficulty'],config['repeat'])
             last_screen,streak,food_streak='',0,0
             previous_observation=None
+            list_center=ListCentering()
             paused_at=None;last_status=None;unknown_since=None;warned=False
             motion_log_state=None;motion_log_at=-999.
             with mss.mss() as capture:
@@ -467,6 +469,17 @@ class App:
                         raise WindowError('게임 화면 전체가 모니터 안에 보이도록 창을 옮기세요.')
                     frame=np.array(capture.grab({'left':left,'top':top,'width':width,'height':height}))[:,:,:3]
                     observation=detector.observe(frame,config['dungeon'],config['difficulty'])
+                    center_due=list_center.observe(observation.screen)
+                    if center_due and not controller.combat_latched:
+                        self.events.put(('status',('어비스 목록 확인','게임 화면 중앙으로 마우스 이동 후 새 화면을 확인합니다.')))
+                        if self.win.center_list_pointer(hwnd,self.stop_event):
+                            list_center.completed()
+                            self.events.put(('log','어비스 목록: 중앙 (400, 500)으로 부드럽게 이동 완료 → 화면 새로 캡처·이름 재확인'))
+                        # Never reuse the pre-move image or its click coordinates.
+                        previous_observation=None;streak=0;last_screen='';last_status=None
+                        self.stop_event.wait(.10)
+                        continue
+
                     food_streak=food_streak+1 if observation.food else 0
                     if not config['food'] or food_streak<2:
                         from dataclasses import replace
@@ -474,7 +487,7 @@ class App:
                     streak=streak+1 if same_detection(previous_observation,observation) else 1
                     previous_observation=observation
                     if observation.screen=='list' and last_screen!='list':
-                        self.events.put(('log','어비스 목록 이름 인식: '+config['dungeon']+' / 마우스 이동 없이 연속 확인 중'))
+                        self.events.put(('log','어비스 목록 이름 인식: '+config['dungeon']+' / 현재 화면 연속 확인 중'))
                     last_screen=observation.screen
                     if observation.screen=='unknown':
                         controller.still_since=None

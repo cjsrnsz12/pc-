@@ -109,3 +109,29 @@ def test_native_click_without_manual_pointer_movement(monkeypatch,native_root):
             assert not worker.is_alive() and not errors
         assert hits==[1,1]
     finally:root.destroy()
+
+
+def test_native_list_center_move_ends_at_client_center_without_click(monkeypatch,native_root):
+    import tkinter as tk
+    import threading
+    import ctypes as C
+    from ctypes import wintypes as W
+    from windows import Windows
+    root=tk.Toplevel(native_root);root.geometry('500x600+0+0');clicks=[]
+    root.bind('<ButtonPress-1>',lambda _:clicks.append(1))
+    root.update();win=Windows();hwnd=win.u.GetAncestor(root.winfo_id(),2)
+    monkeypatch.setattr(win,'ensure_game',lambda handle:None)
+    monkeypatch.setattr(win,'require_control_permission',lambda handle:None)
+    left,top,_,_=win.rect(hwnd)
+    monkeypatch.setattr(win,'rect',lambda handle:(left,top,800,1000))
+    try:
+        win.u.SetForegroundWindow(hwnd);root.focus_force();root.update()
+        assert win.center_list_pointer(hwnd,threading.Event())
+        point=W.POINT();assert win.u.GetCursorPos(C.byref(point))
+        assert (point.x,point.y)==(left+400,top+500)
+        root.update();assert not clicks
+        stopped=threading.Event();stopped.set()
+        assert not win.center_list_pointer(hwnd,stopped)
+        again=W.POINT();win.u.GetCursorPos(C.byref(again))
+        assert (again.x,again.y)==(point.x,point.y)
+    finally:root.destroy()

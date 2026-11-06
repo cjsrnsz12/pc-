@@ -26,7 +26,7 @@ def test_list_uses_requested_name_and_skips_detail_search(monkeypatch,title,key)
     assert o.screen=='list' and o.points['dungeon'][0]>=195
     assert 'enter' not in called and 'loading_name' not in called
     wrong=next(name for name in DUNGEONS if name!=title)
-    assert v.observe(list_frame(key),wrong,'입문').screen!='list'
+    assert 'dungeon' not in v.observe(list_frame(key),wrong,'입문').points
 
 def test_matching_overlay_keeps_priority_over_list():
     v=Vision(ASSETS)

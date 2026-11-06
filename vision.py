@@ -153,8 +153,9 @@ class Vision:
             return Observation('reward', {'retry': h.center})
         if self.hit('matching'):
             return Observation('matching')
-        if (h := self.list_target(dungeon)):
-            return Observation('list', {'dungeon':h.center}, dungeon=dungeon)
+        if self.hit('list_title'):
+            h=self.list_target(dungeon)
+            return Observation('list', {'dungeon':h.center} if h else {}, dungeon=dungeon if h else '')
         if self.hit('loading_name'):
             return Observation('loading')
         if (h := self.hit('skip')):
