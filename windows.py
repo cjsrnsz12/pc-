@@ -134,6 +134,13 @@ class Windows:
         rect=lambda r:(r.left,r.top,r.right,r.bottom)
         return rect(info.rcMonitor),rect(info.rcWork)
 
+    def desktop_bounds(self):
+        # Query live Win32 metrics rather than MSS's cached monitor layout.
+        x,y=self.u.GetSystemMetrics(76),self.u.GetSystemMetrics(77)
+        w,h=self.u.GetSystemMetrics(78),self.u.GetSystemMetrics(79)
+        if w<=0 or h<=0:raise WindowError('현재 모니터 영역을 확인할 수 없습니다.')
+        return x,y,x+w,y+h
+
     def diagnostics(self, hwnd):
         title,path=self.identity(hwnd)
         outer=W.RECT();self.u.GetWindowRect(hwnd,C.byref(outer))

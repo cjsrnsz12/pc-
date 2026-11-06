@@ -35,6 +35,8 @@ from PIL import Image, ImageTk
 from engine import Controller, Observation, State
 from recognition_timing import poll_interval, same_detection
 from list_centering import ListCentering
+from capture_guard import CapturePause, within_desktop
+from failure_diagnostics import save_failure
 from startup_notes import needs_notice, installed_release, mark_shown
 from vision import Vision, DUNGEONS, DIFFICULTIES
 from windows import Windows, WindowError
@@ -448,25 +450,34 @@ class App:
             last_screen,streak,food_streak='',0,0
             previous_observation=None
             list_center=ListCentering()
-            paused_at=None;last_status=None;unknown_since=None;warned=False
+            pause=CapturePause();last_status=None;unknown_since=None;warned=False
+            diagnostics_saved=False
+            self.events.put(('log','실행 환경: '+json.dumps(self.win.diagnostics(hwnd),ensure_ascii=False)))
             motion_log_state=None;motion_log_at=-999.
             with mss.mss() as capture:
                 while not self.stop_event.is_set():
                     now=time.monotonic()
                     if not self.win.active(hwnd):
-                        if paused_at is None:
-                            paused_at=now;detector.stillness.reset();controller.still_since=None
+                        if pause.hold('inactive',now):
+                            detector.stillness.reset();controller.still_since=None
                             self.events.put(('status',('게임 창 활성화 대기','게임 창을 앞에 두면 진행을 이어갑니다.')))
                         self.stop_event.wait(.25);continue
-                    if paused_at is not None:
-                        if controller.entered_at is not None:controller.entered_at+=now-paused_at
-                        paused_at=None;last_status=None;last_screen='';streak=0;previous_observation=None
                     self.win.ensure_game(hwnd)
                     left,top,width,height=self.win.rect(hwnd)
                     if (width,height)!=(800,1000):raise WindowError('화면 크기가 바뀌어 중지했습니다. 800×1000으로 다시 맞추세요.')
-                    monitor=capture.monitors[0]
-                    if left<monitor['left'] or top<monitor['top'] or left+width>monitor['left']+monitor['width'] or top+height>monitor['top']+monitor['height']:
-                        raise WindowError('게임 화면 전체가 모니터 안에 보이도록 창을 옮기세요.')
+                    bounds=self.win.desktop_bounds()
+                    if not within_desktop((left,top,width,height),bounds):
+                        if pause.hold('offscreen',now):
+                            detector.stillness.reset();controller.still_since=None
+                            self.events.put(('log',f'게임 화면 일부가 모니터 밖에 있어 대기: 게임 {(left,top,width,height)} / 화면 {bounds}'))
+                            self.events.put(('status',('게임 창 위치 대기','게임 화면 전체를 모니터 안으로 옮기면 자동으로 이어갑니다.')))
+                        self.stop_event.wait(.25);continue
+                    elapsed=pause.resume(now)
+                    if elapsed is not None:
+                        if controller.entered_at is not None:controller.entered_at+=elapsed
+                        last_status=None;last_screen='';streak=0;previous_observation=None
+                        unknown_since=None;warned=False;food_streak=0
+                        self.events.put(('log','게임 창 확인 완료 → 현재 화면을 새로 확인해 진행을 이어갑니다.'))
                     frame=np.array(capture.grab({'left':left,'top':top,'width':width,'height':height}))[:,:,:3]
                     observation=detector.observe(frame,config['dungeon'],config['difficulty'])
                     center_due=list_center.observe(observation.screen)
@@ -494,6 +505,18 @@ class App:
                         if unknown_since is None:unknown_since=now
                         if now-unknown_since>15 and not warned:
                             self.events.put(('log','화면을 인식하지 못하고 있습니다. 팝업·가려진 화면·UI 배율을 확인하세요.'))
+                            if not diagnostics_saved and self.win.active(hwnd):
+                                try:
+                                    metadata={'version':VERSION,'time':time.strftime('%Y-%m-%d %H:%M:%S'),'requested':config,
+                                              'client_rect':[left,top,width,height],'desktop_bounds':bounds,
+                                              'window':self.win.diagnostics(hwnd),'controller_state':controller.state.value,
+                                              'last_action':controller.last_key,'template_scores':dict(detector.scores)}
+                                    save_failure(DATA/'diagnostics',frame,metadata)
+                                    diagnostics_saved=True
+                                    self.events.put(('log','진단 저장: 기록 폴더의 diagnostics 안 last-unrecognized.png / last-unrecognized.json을 app.log와 함께 보내 주세요. 자동 전송하지 않습니다.'))
+                                except Exception as error:
+                                    self.events.put(('log','진단 저장 실패: '+str(error)))
+
                             warned=True
                     else:unknown_since=None;warned=False
                     action=controller.step(observation,now) if streak>=2 else None

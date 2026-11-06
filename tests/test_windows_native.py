@@ -135,3 +135,12 @@ def test_native_list_center_move_ends_at_client_center_without_click(monkeypatch
         again=W.POINT();win.u.GetCursorPos(C.byref(again))
         assert (again.x,again.y)==(point.x,point.y)
     finally:root.destroy()
+
+
+def test_desktop_bounds_read_current_physical_virtual_screen():
+    from windows import Windows,dpi_aware
+    dpi_aware();win=Windows()
+    left,top,right,bottom=win.desktop_bounds()
+    assert left==win.u.GetSystemMetrics(76) and top==win.u.GetSystemMetrics(77)
+    assert right-left==win.u.GetSystemMetrics(78)>0
+    assert bottom-top==win.u.GetSystemMetrics(79)>0

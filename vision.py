@@ -45,6 +45,7 @@ class Vision:
             self.templates[name] = [cv2.resize(png, None, fx=s, fy=s) for s in item['scales']]
         self.stillness = Stillness()
         self.cache = {}
+        self.scores = {}
         self.gray = None
         self.frame = None
 
@@ -63,6 +64,7 @@ class Vision:
             _, score, _, pos = cv2.minMaxLoc(scores)
             if best is None or score > best.score:
                 best = Hit(score, (x1 + pos[0], y1 + pos[1], w, h))
+        self.scores[name]=round(best.score,4) if best else None
         result = best if best and best.score >= d['threshold'] else None
         self.cache[name] = result
         return result
@@ -144,6 +146,7 @@ class Vision:
         self.frame = cv2.resize(frame, (800, 1000))
         self.gray = cv2.cvtColor(self.frame, cv2.COLOR_BGR2GRAY)
         self.cache = {}
+        self.scores = {}
         p = {}
         if self.hit('mission') and (h := self.hit('confirm')):
             return Observation('mission', {'confirm': h.center})
