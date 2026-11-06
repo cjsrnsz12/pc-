@@ -5,6 +5,7 @@ from ctypes import wintypes as W
 from game_identity import is_game_window
 from window_sizing import covers_monitor, fit_framed_position
 from privileges import process_elevated
+from mouse_sequence import deliver_click
 
 
 def dpi_aware():
@@ -268,10 +269,13 @@ class Windows:
             _fields_ = [('type',W.DWORD),('union',U)]
         ax = round((sx-vx)*65535/max(1,vw-1))
         ay = round((sy-vy)*65535/max(1,vh-1))
-        events = (INPUT*3)()
-        for i,flags in enumerate((0x8000|0x4000|0x0001,0x0002,0x0004)):
-            events[i].type = 0
-            events[i].mi = MOUSEINPUT(ax if i==0 else 0,ay if i==0 else 0,0,flags,0,0)
         self.u.SendInput.argtypes = [W.UINT,C.POINTER(INPUT),C.c_int]
-        if self.u.SendInput(3,events,C.sizeof(INPUT)) != 3:
-            raise WindowError('마우스 입력이 전달되지 않았습니다. 게임과 앱의 실행 권한을 확인하세요.')
+        self.u.SendInput.restype = W.UINT
+        def send(phase):
+            flags={'move':0x8000|0x4000|0x2000|0x0001,'down':0x0002,'up':0x0004}[phase]
+            event=INPUT();event.type=0
+            event.mi=MOUSEINPUT(ax if phase=='move' else 0,ay if phase=='move' else 0,0,flags,0,0)
+            if self.u.SendInput(1,C.byref(event),C.sizeof(INPUT))!=1:
+                raise WindowError('마우스 입력이 전달되지 않았습니다. 게임과 앱의 실행 권한을 확인하세요.')
+        if not deliver_click(send,lambda:self.active(hwnd)):
+            raise WindowError('버튼 확인 중 게임 창이 비활성화되어 클릭을 보류했습니다.')

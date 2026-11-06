@@ -451,6 +451,8 @@ class App:
                         observation=replace(observation,food=False)
                     streak=streak+1 if same_detection(previous_observation,observation) else 1
                     previous_observation=observation
+                    if observation.screen=='list' and last_screen!='list':
+                        self.events.put(('log','어비스 목록 이름 인식: '+config['dungeon']+' / 마우스 이동 없이 연속 확인 중'))
                     last_screen=observation.screen
                     if observation.screen=='unknown':
                         controller.still_since=None
@@ -470,7 +472,7 @@ class App:
                     if status!=last_status:self.events.put(('status',status));last_status=status
                     if action and not self.stop_event.is_set():
                         self.win.click(hwnd,action.point)
-                        self.events.put(('log',action.message+(f' / 찾은 버튼 위치 {action.point}' if action.key=='abyss' else '')))
+                        self.events.put(('log',action.message+(f' / 찾은 버튼 위치 {action.point}' if action.key in ('abyss','dungeon') else '')))
                     if controller.state==State.BLOCKED:
                         self.events.put(('log',controller.reason));break
                     self.stop_event.wait(poll_interval(observation.screen))

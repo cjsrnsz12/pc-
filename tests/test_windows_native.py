@@ -80,3 +80,32 @@ def test_native_elevation_read_and_preflight_block(monkeypatch,native_root):
     monkeypatch.setattr(win,'permission_status',lambda _:{'app_admin':False,'game_admin':True})
     with pytest.raises(PermissionRequired) as error:win.require_control_permission(0)
     assert error.value.winerror==5
+
+
+def test_native_click_without_manual_pointer_movement(monkeypatch,native_root):
+    import tkinter as tk
+    import threading
+    import time
+    from windows import Windows
+    root=tk.Toplevel(native_root);root.geometry('500x400+0+0');hits=[];errors=[]
+    button=tk.Button(root,text='Stationary pointer test',command=lambda:hits.append(1))
+    button.place(x=50,y=60,width=180,height=45)
+    root.update();win=Windows();hwnd=win.u.GetAncestor(root.winfo_id(),2)
+    monkeypatch.setattr(win,'ensure_game',lambda handle:None if handle==hwnd else (_ for _ in ()).throw(AssertionError('wrong test window')))
+    monkeypatch.setattr(win,'require_control_permission',lambda handle:None)
+    left,top,_,_=win.rect(hwnd)
+    monkeypatch.setattr(win,'rect',lambda handle:(left,top,800,1000))
+    try:
+        win.u.SetForegroundWindow(hwnd);root.focus_force();root.update()
+        for _ in range(2):
+            def click():
+                try:win.click(hwnd,(130,80))
+                except Exception as error:errors.append(error)
+            worker=threading.Thread(target=click);worker.start()
+            deadline=time.monotonic()+5
+            while worker.is_alive() and time.monotonic()<deadline:
+                root.update();time.sleep(.005)
+            worker.join(timeout=1);root.update()
+            assert not worker.is_alive() and not errors
+        assert hits==[1,1]
+    finally:root.destroy()
