@@ -128,7 +128,7 @@ def test_native_list_center_move_ends_at_client_center_without_click(monkeypatch
         win.u.SetForegroundWindow(hwnd);root.focus_force();root.update()
         assert win.center_list_pointer(hwnd,threading.Event())
         point=W.POINT();assert win.u.GetCursorPos(C.byref(point))
-        assert (point.x,point.y)==(left+400,top+500)
+        assert (point.x,point.y)==(left+400,top+350)
         root.update();assert not clicks
         stopped=threading.Event();stopped.set()
         assert not win.center_list_pointer(hwnd,stopped)

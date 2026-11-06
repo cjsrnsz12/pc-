@@ -36,7 +36,7 @@ from engine import Controller, Observation, State
 from recognition_timing import poll_interval, same_detection
 from list_centering import ListCentering
 from capture_guard import CapturePause, within_desktop
-from failure_diagnostics import save_failure
+from failure_diagnostics import save_failure,create_bundle,LOG_FILENAME
 from startup_notes import needs_notice, installed_release, mark_shown
 from vision import Vision, DUNGEONS, DIFFICULTIES
 from windows import Windows, WindowError
@@ -56,7 +56,10 @@ DATA.mkdir(parents=True,exist_ok=True)
 cleanup_updates(DATA/'updates')
 LOG = logging.getLogger('abyss')
 LOG.setLevel(logging.INFO)
-_handler = RotatingFileHandler(DATA/'app.log',maxBytes=1_000_000,backupCount=3,encoding='utf-8')
+if not (DATA/LOG_FILENAME).exists() and (DATA/'app.log').is_file():
+    try:shutil.copyfile(DATA/'app.log',DATA/LOG_FILENAME)
+    except OSError:pass
+_handler = RotatingFileHandler(DATA/LOG_FILENAME,maxBytes=1_000_000,backupCount=3,encoding='utf-8')
 _handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
 LOG.addHandler(_handler)
 BG, PANEL, TEXT, MUTED, ACCENT = '#0c1220','#162136','#edf2ff','#9caccc','#51dfb0'
@@ -204,6 +207,7 @@ class App:
         ttk.Label(page,text='시작 후 게임 창을 클릭하세요. 다른 창을 사용하면 자동으로 대기합니다.',style='Muted.TLabel',wraplength=650).pack(anchor='w',pady=(0,12))
         log_header=ttk.Frame(page);log_header.pack(fill='x')
         ttk.Label(log_header,text='✦ 진행 기록',font=('맑은 고딕',11,'bold')).pack(side='left')
+        ttk.Button(log_header,text='로그 파일 저장',command=self.export_logs).pack(side='right',padx=(8,0))
         ttk.Button(log_header,text='기록 폴더',command=lambda:os.startfile(DATA)).pack(side='right')
         self.log_box=tk.Text(page,height=8,background='#09101b',foreground='#b9cbea',font=('맑은 고딕',9),relief='flat',padx=12,pady=10,wrap='word',state='disabled')
         self.log_box.pack(fill='both',expand=True,pady=(8,12))
@@ -215,6 +219,19 @@ class App:
         self.content.trace_add('write',self.content_changed)
         self.content_changed()
         smooth_buttons(self.root)
+
+    def export_logs(self):
+        destination=filedialog.asksaveasfilename(parent=self.root,title='로그 파일과 오류 화면 함께 저장',initialfile='로그 파일.zip',defaultextension='.zip',filetypes=[('로그 묶음','*.zip')])
+        if not destination:return
+        try:
+            _handler.flush();create_bundle(DATA,destination)
+            messagebox.showinfo('로그 파일','로그 파일과 저장된 오류 화면을 ZIP으로 묶었습니다. 이 대화에 첨부해 주세요.',parent=self.root)
+        except OSError as error:messagebox.showerror('로그 파일 저장 실패',str(error),parent=self.root)
+
+    def save_problem(self,frame,metadata):
+        save_failure(DATA/'diagnostics',frame,metadata)
+        LOG.info('오류 화면·진단 정보 저장 완료. 로그 파일.zip을 보내 주세요.')
+        _handler.flush();create_bundle(DATA)
 
     def scroll_page(self,event):
         if not isinstance(event.widget,tk.Misc):return
@@ -306,7 +323,7 @@ class App:
         elif isinstance(error,PermissionError):
             self.show_permission_notice(title,error,hwnd,file_access=True)
         else:
-            messagebox.showerror(title,str(error)+'\n\n상세 정보는 기록 폴더의 app.log를 확인하세요.',parent=self.root)
+            messagebox.showerror(title,str(error)+'\n\n상세 정보는 기록 폴더의 로그 파일.log를 확인하세요.',parent=self.root)
 
     def restart_as_admin(self):
         if not getattr(sys,'frozen',False):return
@@ -479,13 +496,13 @@ class App:
                         unknown_since=None;warned=False;food_streak=0
                         self.events.put(('log','게임 창 확인 완료 → 현재 화면을 새로 확인해 진행을 이어갑니다.'))
                     frame=np.array(capture.grab({'left':left,'top':top,'width':width,'height':height}))[:,:,:3]
-                    observation=detector.observe(frame,config['dungeon'],config['difficulty'])
+                    observation=detector.observe(frame,config['dungeon'],config['difficulty'],after_clear=controller.clear_clicked)
                     center_due=list_center.observe(observation.screen)
-                    if center_due and not controller.combat_latched:
-                        self.events.put(('status',('어비스 목록 확인','게임 화면 중앙으로 마우스 이동 후 새 화면을 확인합니다.')))
+                    if center_due and (not controller.combat_latched or controller.clear_clicked):
+                        self.events.put(('status',('어비스 목록 확인','게임 화면 중앙보다 위로 마우스 이동 후 새 화면을 확인합니다.')))
                         if self.win.center_list_pointer(hwnd,self.stop_event):
                             list_center.completed()
-                            self.events.put(('log','어비스 목록: 중앙 (400, 500)으로 부드럽게 이동 완료 → 화면 새로 캡처·이름 재확인'))
+                            self.events.put(('log','어비스 목록: 중앙 위 (400, 350)로 부드럽게 이동 완료 → 화면 새로 캡처·이름 재확인'))
                         # Never reuse the pre-move image or its click coordinates.
                         previous_observation=None;streak=0;last_screen='';last_status=None
                         self.stop_event.wait(.10)
@@ -500,10 +517,11 @@ class App:
                     if observation.screen=='list' and last_screen!='list':
                         self.events.put(('log','어비스 목록 이름 인식: '+config['dungeon']+' / 현재 화면 연속 확인 중'))
                     last_screen=observation.screen
-                    if observation.screen=='unknown':
+                    result_stalled=controller.clear_seen_at is not None and now-controller.clear_seen_at>15 and observation.screen not in ('reward','matching','loading')
+                    if observation.screen=='unknown' or result_stalled:
                         controller.still_since=None
                         if unknown_since is None:unknown_since=now
-                        if now-unknown_since>15 and not warned:
+                        if (now-unknown_since>15 or result_stalled) and not warned:
                             self.events.put(('log','화면을 인식하지 못하고 있습니다. 팝업·가려진 화면·UI 배율을 확인하세요.'))
                             if not diagnostics_saved and self.win.active(hwnd):
                                 try:
@@ -511,9 +529,9 @@ class App:
                                               'client_rect':[left,top,width,height],'desktop_bounds':bounds,
                                               'window':self.win.diagnostics(hwnd),'controller_state':controller.state.value,
                                               'last_action':controller.last_key,'template_scores':dict(detector.scores)}
-                                    save_failure(DATA/'diagnostics',frame,metadata)
+                                    self.save_problem(frame,metadata)
                                     diagnostics_saved=True
-                                    self.events.put(('log','진단 저장: 기록 폴더의 diagnostics 안 last-unrecognized.png / last-unrecognized.json을 app.log와 함께 보내 주세요. 자동 전송하지 않습니다.'))
+                                    self.events.put(('log','진단 저장: 기록 폴더의 로그 파일.zip에 로그와 오류 화면을 함께 담았습니다. 자동 전송하지 않습니다.'))
                                 except Exception as error:
                                     self.events.put(('log','진단 저장 실패: '+str(error)))
 
@@ -532,10 +550,22 @@ class App:
                         self.win.click(hwnd,action.point)
                         self.events.put(('log',action.message+(f' / 찾은 버튼 위치 {action.point}' if action.key in ('abyss','dungeon') else '')))
                     if controller.state==State.BLOCKED:
-                        self.events.put(('log',controller.reason));break
+                        self.events.put(('log',controller.reason))
+                        try:
+                            if self.win.active(hwnd):self.save_problem(frame,{'version':VERSION,'reason':controller.reason,'screen':observation.screen,'template_scores':dict(detector.scores)})
+                        except Exception:LOG.exception('오류 화면 저장 실패')
+                        break
                     self.stop_event.wait(poll_interval(observation.screen))
         except Exception as e:
             LOG.exception('Worker stopped')
+            try:
+                if self.win.active(hwnd):
+                    x,y,w,h=self.win.rect(hwnd)
+                    if (w,h)==(800,1000) and within_desktop((x,y,w,h),self.win.desktop_bounds()):
+                        with mss.mss() as failed_capture:
+                            failed_frame=np.array(failed_capture.grab({'left':x,'top':y,'width':w,'height':h}))[:,:,:3]
+                        if self.win.active(hwnd):self.save_problem(failed_frame,{'version':VERSION,'reason':str(e),'window':self.win.diagnostics(hwnd)})
+            except Exception:LOG.exception('오류 진단 저장 실패')
             self.events.put(('error',(e,hwnd)))
         finally:self.events.put(('stopped',None))
 
@@ -642,7 +672,7 @@ class App:
     def callback_error(self,typ,value,tb):
         LOG.error('UI error',exc_info=(typ,value,tb))
         self.stop()
-        messagebox.showerror('오류','작업을 중지했습니다. 기록 폴더의 app.log를 확인하세요.\n'+str(value),parent=self.root)
+        messagebox.showerror('오류','작업을 중지했습니다. 기록 폴더의 로그 파일.log를 확인하세요.\n'+str(value),parent=self.root)
 
     def close(self):
         self.closing=True;self.stop_event.set()

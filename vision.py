@@ -43,6 +43,7 @@ class Vision:
         for name, item in self.data.items():
             png = cv2.imdecode(np.frombuffer(base64.b64decode(item['png']), np.uint8), cv2.IMREAD_GRAYSCALE)
             self.templates[name] = [cv2.resize(png, None, fx=s, fy=s) for s in item['scales']]
+        self.result_templates={name:[cv2.resize(self.templates[name][0],None,fx=s,fy=s) for s in (.8,.85,.9,.95,1.05,1.1,1.15,1.2,1.25,1.3)] for name in ('clear','touch','retry','exit')}
         self.stillness = Stillness()
         self.cache = {}
         self.scores = {}
@@ -68,6 +69,25 @@ class Vision:
         result = best if best and best.score >= d['threshold'] else None
         self.cache[name] = result
         return result
+
+    def result_hit(self,name):
+        original=self.hit(name)
+        if original:return original
+        box={'clear':(100,100,700,370),'touch':(80,780,720,1000),'retry':(80,760,740,1000),'exit':(30,760,420,1000)}[name]
+        x,y,x2,y2=box;roi=self.gray[y:y2,x:x2];best=None
+        for template in self.result_templates[name]:
+            h,w=template.shape
+            if h>roi.shape[0] or w>roi.shape[1]:continue
+            _,score,_,pos=cv2.minMaxLoc(cv2.matchTemplate(roi,template,cv2.TM_CCOEFF_NORMED))
+            if best is None or score>best.score:best=Hit(score,(x+pos[0],y+pos[1],w,h))
+        self.scores['result_'+name]=round(best.score,4) if best else None
+        return best if best and best.score>=self.data[name]['threshold'] else None
+
+    def result_screen(self):
+        if self.result_hit('clear') and self.result_hit('touch'):return Observation('clear')
+        if (retry:=self.result_hit('retry')) and self.result_hit('exit'):
+            return Observation('reward',{'retry':retry.center})
+        return None
 
     def color_fraction(self, box, kind):
         x1, y1, x2, y2 = map(int, box)
@@ -142,7 +162,7 @@ class Vision:
             if aligned and np.mean(colored[ring])>.07:matched+=1
         return matched>=4
 
-    def observe(self, frame, dungeon, difficulty):
+    def observe(self, frame, dungeon, difficulty, after_clear=False):
         self.frame = cv2.resize(frame, (800, 1000))
         self.gray = cv2.cvtColor(self.frame, cv2.COLOR_BGR2GRAY)
         self.cache = {}
@@ -150,12 +170,15 @@ class Vision:
         p = {}
         if self.hit('mission') and (h := self.hit('confirm')):
             return Observation('mission', {'confirm': h.center})
+        if self.hit('matching'):
+            return Observation('matching')
         if self.hit('clear') and self.hit('touch'):
             return Observation('clear')
         if (h := self.hit('retry')) and self.hit('exit'):
             return Observation('reward', {'retry': h.center})
-        if self.hit('matching'):
-            return Observation('matching')
+        if after_clear:
+            recovered=self.result_screen()
+            if recovered is not None:return recovered
         if self.hit('list_title'):
             h=self.list_target(dungeon)
             return Observation('list', {'dungeon':h.center} if h else {}, dungeon=dungeon if h else '')
@@ -207,4 +230,5 @@ class Vision:
             still = self.stillness.update(self.frame)
             return Observation('combat' if combat else 'field',p,still=still,food=bool(food),motion_note=self.stillness.note)
         self.stillness.reset()
-        return Observation()
+        recovered=self.result_screen()
+        return recovered if recovered is not None else Observation()

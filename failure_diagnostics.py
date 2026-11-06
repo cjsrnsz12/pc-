@@ -15,3 +15,26 @@ def save_failure(directory,frame,metadata):
     staged_info.write_text(json.dumps(metadata,ensure_ascii=False,indent=2),encoding='utf-8')
     staged_image.replace(image);staged_info.replace(info)
     return image,info
+
+
+LOG_FILENAME='로그 파일.log'
+
+
+def create_bundle(directory,destination=None):
+    import zipfile
+    directory=Path(directory)
+    destination=Path(destination) if destination else directory/'로그 파일.zip'
+    destination.parent.mkdir(parents=True,exist_ok=True)
+    temporary=destination.with_name(destination.name+'.tmp')
+    primary=directory/LOG_FILENAME
+    if not primary.exists():primary=directory/'app.log'
+    with zipfile.ZipFile(temporary,'w',zipfile.ZIP_DEFLATED) as archive:
+        if primary.is_file():archive.write(primary,LOG_FILENAME)
+        for i in range(1,4):
+            rotated=primary.with_name(primary.name+'.'+str(i))
+            if rotated.is_file():archive.write(rotated,LOG_FILENAME+'.'+str(i))
+        for source,name in [('last-unrecognized.png','오류 화면.png'),('last-unrecognized.json','오류 정보.json')]:
+            path=directory/'diagnostics'/source
+            if path.is_file():archive.write(path,name)
+    temporary.replace(destination)
+    return destination

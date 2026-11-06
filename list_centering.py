@@ -1,5 +1,8 @@
 """One pointer preparation per Abyss-list visit, followed by fresh recognition."""
 
+LIST_PARK_POINT=(400,350)
+
+
 class ListCentering:
     def __init__(self):
         self.prepared=False

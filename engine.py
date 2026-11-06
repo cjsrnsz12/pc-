@@ -51,6 +51,7 @@ class Controller:
         self.entered_at = None
         self.combat_latched = False
         self.clear_clicked = False
+        self.clear_seen_at = None
         self.skip_clicked = False
         self.repeats = 0
         self.reward_since = None
@@ -107,7 +108,11 @@ class Controller:
         if o.screen != self.last_screen:
             self.last_key, self.attempts = '', 0
             self.last_screen = o.screen
+        if o.screen == 'list' and self.clear_clicked and o.dungeon==self.dungeon and o.points.get('dungeon'):
+            self.combat_latched=False;self.state=State.SCAN;self.entered_at=None
+            self.clear_clicked=False;self.clear_seen_at=None
         if o.screen == 'reward':
+            self.clear_seen_at=None;self.clear_clicked=False
             self.state = State.REWARD if self.repeat else State.WAIT
             self.combat_latched = False
             if self.reward_since is None:
@@ -120,6 +125,7 @@ class Controller:
                 self.entered_at = now
             return a
         if o.screen in ('matching', 'loading'):
+            self.clear_seen_at=None
             if self.state != State.ENTERING:
                 self.repeats += int(self.reward_since is not None)
             self.state = State.ENTERING
@@ -134,6 +140,7 @@ class Controller:
                 self.state, self.reason = State.BLOCKED, '입장 대기가 4분을 넘었습니다. 화면을 확인하세요.'
             return None
         if o.screen == 'clear':
+            if self.clear_seen_at is None:self.clear_seen_at=now
             self.state, self.combat_latched = State.CLEAR, True
             if self.clear_clicked:
                 return None
@@ -150,6 +157,9 @@ class Controller:
                 self.skip_clicked = True
             return a
         if o.screen == 'combat':
+            if self.clear_clicked:
+                self.state=State.CLEAR
+                return None
             self.combat_latched = True
             self.state = State.BOSS if self.skip_clicked else State.COMBAT
             self.entered_at = None

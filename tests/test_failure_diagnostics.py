@@ -26,3 +26,24 @@ def test_unknown_template_scores_are_available_without_changing_thresholds():
     assert v.observe(np.zeros((1000,800,3),np.uint8),'허상의 정박지','매우 어려움').screen=='unknown'
     assert 'menu_close' in v.scores and 'list_title' in v.scores
     assert v.scores['list_title']<v.data['list_title']['threshold']
+
+
+def test_korean_log_bundle_contains_log_and_error_screen_together(tmp_path):
+    import zipfile
+    from failure_diagnostics import create_bundle,LOG_FILENAME
+    (tmp_path/LOG_FILENAME).write_text('오류 기록',encoding='utf-8')
+    save_failure(tmp_path/'diagnostics',np.zeros((1000,800,3),np.uint8),{'reason':'after_clear'})
+    path=create_bundle(tmp_path)
+    assert path.name=='로그 파일.zip'
+    with zipfile.ZipFile(path) as archive:
+        assert set(archive.namelist())=={LOG_FILENAME,'오류 화면.png','오류 정보.json'}
+        assert archive.read(LOG_FILENAME).decode()=='오류 기록'
+        assert json.loads(archive.read('오류 정보.json'))['reason']=='after_clear'
+
+
+def test_legacy_log_can_be_exported_with_requested_filename(tmp_path):
+    import zipfile
+    from failure_diagnostics import create_bundle
+    (tmp_path/'app.log').write_text('legacy')
+    with zipfile.ZipFile(create_bundle(tmp_path)) as archive:
+        assert archive.read('로그 파일.log')==b'legacy'
