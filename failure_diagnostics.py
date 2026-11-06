@@ -2,6 +2,8 @@
 import json
 from pathlib import Path
 import cv2
+from datetime import datetime
+from log_retention import LOG_FILENAME,retained_text,cleanup_artifacts
 
 
 def save_failure(directory,frame,metadata):
@@ -17,22 +19,24 @@ def save_failure(directory,frame,metadata):
     return image,info
 
 
-LOG_FILENAME='로그 파일.log'
 
 
 def create_bundle(directory,destination=None):
     import zipfile
     directory=Path(directory)
+    now=datetime.now();cleanup_artifacts(directory,now)
     destination=Path(destination) if destination else directory/'로그 파일.zip'
     destination.parent.mkdir(parents=True,exist_ok=True)
     temporary=destination.with_name(destination.name+'.tmp')
     primary=directory/LOG_FILENAME
     if not primary.exists():primary=directory/'app.log'
     with zipfile.ZipFile(temporary,'w',zipfile.ZIP_DEFLATED) as archive:
-        if primary.is_file():archive.write(primary,LOG_FILENAME)
+        if primary.is_file():archive.writestr(LOG_FILENAME,retained_text(primary.read_text(encoding='utf-8-sig',errors='replace'),now))
         for i in range(1,4):
             rotated=primary.with_name(primary.name+'.'+str(i))
-            if rotated.is_file():archive.write(rotated,LOG_FILENAME+'.'+str(i))
+            if rotated.is_file():
+                kept=retained_text(rotated.read_text(encoding='utf-8-sig',errors='replace'),now)
+                if kept:archive.writestr(LOG_FILENAME+'.'+str(i),kept)
         for source,name in [('last-unrecognized.png','오류 화면.png'),('last-unrecognized.json','오류 정보.json')]:
             path=directory/'diagnostics'/source
             if path.is_file():archive.write(path,name)

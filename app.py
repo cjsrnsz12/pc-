@@ -16,7 +16,7 @@ from windows import dpi_aware
 dpi_aware()
 import json
 import logging
-from logging.handlers import RotatingFileHandler
+from log_retention import DailyRetentionHandler
 import os
 from pathlib import Path
 import queue
@@ -59,7 +59,7 @@ LOG.setLevel(logging.INFO)
 if not (DATA/LOG_FILENAME).exists() and (DATA/'app.log').is_file():
     try:shutil.copyfile(DATA/'app.log',DATA/LOG_FILENAME)
     except OSError:pass
-_handler = RotatingFileHandler(DATA/LOG_FILENAME,maxBytes=1_000_000,backupCount=3,encoding='utf-8')
+_handler = DailyRetentionHandler(DATA)
 _handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
 LOG.addHandler(_handler)
 BG, PANEL, TEXT, MUTED, ACCENT = '#0c1220','#162136','#edf2ff','#9caccc','#51dfb0'
@@ -113,6 +113,7 @@ class App:
         self.log('v'+VERSION+' / 앱 관리자 권한: '+str(process_elevated()))
         self.log('게임 창 자동 맞추기 또는 시작을 누르면 필요한 권한을 확인합니다. 권한 확인 버튼으로도 볼 수 있습니다.')
         root.after(100,self.pump)
+        root.after(min(1000,_handler.next_cleanup_ms()),self.maintain_logs)
         root.after(1600,self.update_check)
         if '--smoke-test' not in sys.argv:root.after(700,self.show_installed_changes)
         if '--update-ready' in sys.argv:
@@ -219,6 +220,12 @@ class App:
         self.content.trace_add('write',self.content_changed)
         self.content_changed()
         smooth_buttons(self.root)
+
+    def maintain_logs(self):
+        if self.closing:return
+        try:_handler.purge()
+        except OSError:pass
+        self.root.after(_handler.next_cleanup_ms(),self.maintain_logs)
 
     def export_logs(self):
         destination=filedialog.asksaveasfilename(parent=self.root,title='로그 파일과 오류 화면 함께 저장',initialfile='로그 파일.zip',defaultextension='.zip',filetypes=[('로그 묶음','*.zip')])
