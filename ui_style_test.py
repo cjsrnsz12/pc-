@@ -27,6 +27,30 @@ def exercise_style_controls(app,report_path):
     assert check.label.cget('background')==BG
     check.configure(state='normal');app.food.set(original);settle()
     from choice_control import PLAY_MODES,DIFFICULTY_COLORS
+    from choice_control import SmoothChoice,CONTENT_TYPES
+    from vision import DUNGEONS
+    assert isinstance(app.content_box,SmoothChoice) and isinstance(app.dungeon_box,SmoothChoice)
+    assert app.content_box.values==CONTENT_TYPES and app.dungeon_box.values==list(DUNGEONS)
+    app.content.set('어비스');root.update()
+    for choice in (app.content_box,app.dungeon_box):
+        choice.open();settle()
+        assert choice.popup and choice.popup.winfo_height()>60
+        choice.dismiss()
+    saved_destination=app.dungeon.get();saved_difficulty=app.difficulty.get()
+    app.content_box.choose('레이드');root.update()
+    import json
+    assert json.loads(app.settings_path.read_text(encoding='utf-8'))['content']=='레이드'
+    assert app.content_hint.winfo_ismapped() and not app.destination_options.winfo_ismapped()
+    assert str(app.start_button['state'])=='disabled' and '레이드' in app.status.get()
+    app.content_box.choose('어비스');root.update()
+    assert app.destination_options.winfo_ismapped() and not app.content_hint.winfo_ismapped()
+    assert app.dungeon.get()==saved_destination and app.difficulty.get()==saved_difficulty
+    assert str(app.start_button['state'])=='normal'
+    for dungeon in DUNGEONS:
+        app.dungeon_box.choose(dungeon);root.update()
+        assert app.dungeon.get()==dungeon
+    app.dungeon.set(saved_destination);app.difficulty.set(saved_difficulty)
+
     app.play_mode.set(PLAY_MODES[1]);root.update()
     assert '준비 중' in app.mode_hint.get() and str(app.start_button['state'])=='disabled'
     app.play_mode.set(PLAY_MODES[0]);root.update()

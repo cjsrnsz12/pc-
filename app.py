@@ -44,7 +44,7 @@ from installer import prepare_install, launch_installer, cleanup_updates
 from update_notice import UpdateNotice
 from ui_controls import SmoothCheckbutton, smooth_buttons,RoundScrollbar
 from ui_theme import LauncherHeader, app_icon
-from choice_control import SmoothChoice, DIFFICULTY_COLORS, PLAY_MODES
+from choice_control import SmoothChoice, DIFFICULTY_COLORS, PLAY_MODES, CONTENT_TYPES
 from update_prompt import UpdatePrompt
 
 BASE = Path(getattr(sys,'_MEIPASS',Path(__file__).resolve().parent))
@@ -167,7 +167,13 @@ class App:
         self.window_box=ttk.Combobox(row,textvariable=self.window_choice,state='readonly');self.window_box.pack(side='left',fill='x',expand=True)
         self.refresh_button=ttk.Button(row,text='↻ 새로고침',command=self.refresh);self.refresh_button.pack(side='left',padx=(8,0))
         self.resize_button=ttk.Button(row,text='▣ 게임 창 자동 맞추기',command=self.resize);self.resize_button.pack(side='left',padx=(8,0))
-        options=ttk.Frame(page);options.pack(fill='x',pady=(15,8))
+        destination_section=ttk.Frame(page);destination_section.pack(fill='x',pady=(15,8))
+        ttk.Label(destination_section,text='콘텐츠').pack(anchor='w',pady=(0,5))
+        self.content=tk.StringVar(value=self.settings.get('content','어비스'))
+        if self.content.get() not in CONTENT_TYPES:self.content.set('어비스')
+        self.content_box=SmoothChoice(destination_section,textvariable=self.content,values=CONTENT_TYPES);self.content_box.pack(fill='x')
+        self.content_hint=ttk.Label(destination_section,text='레이드 · 준비 중',foreground='#ffc454',padding=(0,12))
+        options=self.destination_options=ttk.Frame(destination_section);options.pack(fill='x',pady=(12,0))
         options.columnconfigure(0,weight=1);options.columnconfigure(1,weight=1)
         ttk.Label(options,text='목적지').grid(row=0,column=0,sticky='w',pady=(0,5))
         ttk.Label(options,text='난이도').grid(row=0,column=1,sticky='w',padx=(12,0),pady=(0,5))
@@ -175,9 +181,8 @@ class App:
         if self.dungeon.get() not in DUNGEONS:self.dungeon.set('허상의 정박지')
         self.difficulty=tk.StringVar(value=self.settings.get('difficulty','매우 어려움'))
         if self.difficulty.get() not in DIFFICULTIES:self.difficulty.set('매우 어려움')
-        self.dungeon_box=ttk.Combobox(options,textvariable=self.dungeon,values=list(DUNGEONS),state='readonly');self.dungeon_box.grid(row=1,column=0,sticky='ew')
+        self.dungeon_box=SmoothChoice(options,textvariable=self.dungeon,values=list(DUNGEONS),command=self.destination_changed);self.dungeon_box.grid(row=1,column=0,sticky='ew')
         self.difficulty_box=SmoothChoice(options,textvariable=self.difficulty,values=DIFFICULTIES,colors=DIFFICULTY_COLORS);self.difficulty_box.grid(row=1,column=1,sticky='ew',padx=(12,0))
-        self.dungeon_box.bind('<<ComboboxSelected>>',self.destination_changed)
         self.repeat=tk.BooleanVar(value=bool(self.settings.get('repeat',True)))
         self.food=tk.BooleanVar(value=bool(self.settings.get('food',True)))
         self.play_mode=tk.StringVar(value=self.settings.get('play_mode',PLAY_MODES[0]))
@@ -204,7 +209,8 @@ class App:
         ttk.Label(bottom,textvariable=self.update_text,style='Muted.TLabel').pack(side='left')
         self.update_button=ttk.Button(bottom,text='업데이트 소식',command=self.open_update_notice);self.update_button.pack(side='right')
         ttk.Button(bottom,text='권한 확인',command=self.check_permissions).pack(side='right',padx=(0,8))
-        self.play_mode_changed()
+        self.content.trace_add('write',self.content_changed)
+        self.content_changed()
         smooth_buttons(self.root)
 
     def scroll_page(self,event):
@@ -212,6 +218,19 @@ class App:
         if event.widget.winfo_toplevel() is not self.root:return
         if isinstance(event.widget,(tk.Text,ttk.Combobox)):return
         self.page_canvas.yview_scroll(-int(event.delta/120),'units')
+
+    def content_changed(self,*_):
+        if _:
+            self.settings['content']=self.content.get()
+            try:self.settings_path.write_text(json.dumps(self.settings,ensure_ascii=False,indent=2),encoding='utf-8')
+            except OSError as error:self.log('콘텐츠 선택 저장 실패: '+str(error))
+        if self.content.get()=='어비스':
+            self.content_hint.pack_forget()
+            self.destination_options.pack(fill='x',pady=(12,0))
+        else:
+            self.destination_options.pack_forget()
+            self.content_hint.pack(fill='x')
+        self.play_mode_changed()
 
     def destination_changed(self,_=None):
         self.difficulty.set({'허상의 정박지':'매우 어려움','광기의 동굴':'어려움','흩어진 물길':'입문'}[self.dungeon.get()])
@@ -292,7 +311,7 @@ class App:
             if process_elevated() is True:
                 messagebox.showinfo('권한 확인','현재 앱은 이미 관리자 권한입니다.',parent=self.root);return
             self.stop()
-            self.settings={'dungeon':self.dungeon.get(),'difficulty':self.difficulty.get(),'repeat':self.repeat.get(),'food':self.food.get(),'play_mode':self.play_mode.get()}
+            self.settings={'dungeon':self.dungeon.get(),'difficulty':self.difficulty.get(),'repeat':self.repeat.get(),'food':self.food.get(),'play_mode':self.play_mode.get(),'content':self.content.get()}
             self.settings_path.write_text(json.dumps(self.settings,ensure_ascii=False,indent=2),encoding='utf-8')
             if relaunch_admin(sys.executable):
                 self.log('Windows 관리자 권한 재실행이 승인되어 현재 앱을 종료합니다.');self.close()
@@ -381,20 +400,23 @@ class App:
         except WindowError as e:self.sizing_error(hwnd,e)
 
     def lock_controls(self,running):
-        for w in (self.window_box,self.dungeon_box,self.difficulty_box,self.mode_box):w.configure(state='disabled' if running else 'readonly')
+        for w in (self.window_box,self.content_box,self.dungeon_box,self.difficulty_box,self.mode_box):w.configure(state='disabled' if running else 'readonly')
         for w in (self.refresh_button,self.resize_button,self.start_button,self.food_check):w.configure(state='disabled' if running else 'normal')
         self.stop_button.configure(state='normal' if running else 'disabled')
-        if self.installing or self.play_mode.get()==PLAY_MODES[1]:self.start_button.configure(state='disabled')
+        if self.installing or self.content.get()=='레이드' or self.play_mode.get()==PLAY_MODES[1]:self.start_button.configure(state='disabled')
 
     def play_mode_changed(self,*_):
         party=self.play_mode.get()==PLAY_MODES[1]
+        raid=self.content.get()=='레이드'
         self.repeat.set(not party)
         if hasattr(self,'mode_hint'):
-            self.mode_hint.set('파티 플레이: 준비 중' if party else '솔로 플레이: 보상 화면에서 다시 하기 · 파티 플레이: 준비 중')
-            self.status.set('파티 플레이 준비 중' if party else '시작 대기')
-            self.start_button.configure(state='disabled' if party or self.running or self.installing else 'normal')
+            self.mode_hint.set('레이드: 준비 중' if raid else '파티 플레이: 준비 중' if party else '솔로 플레이: 보상 화면에서 다시 하기 · 파티 플레이: 준비 중')
+            self.status.set('레이드 준비 중' if raid else '파티 플레이 준비 중' if party else '시작 대기')
+            self.start_button.configure(state='disabled' if raid or party or self.running or self.installing else 'normal')
 
     def start(self):
+        if self.content.get()=='레이드':
+            messagebox.showinfo('레이드','레이드는 준비 중입니다.',parent=self.root);return
         if self.play_mode.get()==PLAY_MODES[1]:
             messagebox.showinfo('파티 플레이','파티 플레이는 준비 중입니다.',parent=self.root);return
         if self.running or self.sizing_busy or self.installing or self.closing:return
@@ -406,7 +428,7 @@ class App:
             if (w,h)!=(800,1000):raise WindowError(f'실제 화면이 {w}×{h}입니다. 먼저 게임 창 자동 맞추기를 누르세요.')
         except WindowError as e:
             self.show_operation_error('매크로 시작',e,locals().get('hwnd'));return
-        self.settings={'dungeon':self.dungeon.get(),'difficulty':self.difficulty.get(),'repeat':self.repeat.get(),'food':self.food.get(),'play_mode':self.play_mode.get()}
+        self.settings={'dungeon':self.dungeon.get(),'difficulty':self.difficulty.get(),'repeat':self.repeat.get(),'food':self.food.get(),'play_mode':self.play_mode.get(),'content':self.content.get()}
         self.settings_path.write_text(json.dumps(self.settings,ensure_ascii=False,indent=2),encoding='utf-8')
         self.running=True;self.stop_event.clear();self.lock_controls(True)
         self.status.set('게임 창을 클릭하세요')
