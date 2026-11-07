@@ -35,7 +35,7 @@ from PIL import Image, ImageTk
 from engine import Controller, Observation, State
 from raid import RaidController,RaidVision,RAID_DIFFICULTIES
 from recognition_timing import poll_interval, same_detection
-from list_centering import ListCentering
+from list_centering import ListCentering,RaidEntryCentering
 from capture_guard import CapturePause, within_desktop
 from window_sizing import supported_client
 from failure_diagnostics import save_failure,create_bundle,LOG_FILENAME
@@ -495,7 +495,7 @@ class App:
             controller=RaidController(config['difficulty']) if raid else Controller(config['dungeon'],config['difficulty'],config['repeat'],party=config.get('play_mode')==PLAY_MODES[1])
             last_screen,streak,food_streak='',0,0
             previous_observation=None
-            list_center=ListCentering()
+            list_center=ListCentering();raid_center=RaidEntryCentering()
             pause=CapturePause();last_status=None;unknown_since=None;warned=False
             diagnostics_saved=False
             self.events.put(('log','실행 환경: '+json.dumps(self.win.diagnostics(hwnd),ensure_ascii=False)))
@@ -527,6 +527,14 @@ class App:
                     frame=np.array(capture.grab({'left':left,'top':top,'width':width,'height':height}))[:,:,:3]
                     frame=cv2.resize(frame,(800,1000))
                     observation=detector.observe(frame,config['dungeon'],config['difficulty'],after_clear=controller.clear_clicked)
+                    if raid and raid_center.observe(observation.screen):
+                        self.events.put(('status',('카브락 보스방 입장 확인','게임 화면 중앙으로 마우스를 부드럽게 이동합니다.')))
+                        if self.win.center_raid_pointer(hwnd,self.stop_event):
+                            raid_center.completed()
+                            self.events.put(('log','레이드 보스방: 중앙 (400, 500)으로 부드럽게 이동 완료 → 화면 새로 캡처·재인식'))
+                        previous_observation=None;streak=0;food_streak=0;last_screen='';last_status=None
+                        self.stop_event.wait(.10)
+                        continue
                     center_due=list_center.observe(observation.screen)
                     if center_due and (not controller.combat_latched or controller.clear_clicked):
                         self.events.put(('status',('어비스 목록 확인','게임 화면 중앙보다 위로 마우스 이동 후 새 화면을 확인합니다.')))
@@ -568,7 +576,7 @@ class App:
                             warned=True
                     else:unknown_since=None;warned=False
                     action=controller.step(observation,now) if streak>=2 else None
-                    status=(controller.state.value,controller.reason or ('감지: '+{'unknown':'화면 확인 중','dead':'행동 불능·여기서 부활 확인','field':'일반 화면','combat':'전투','detail':'입장 설정','matching':'우연한 만남 대기','loading':'로딩','cutscene':'보스 연출','reward':'보상','mission':'협동 미션','clear':'던전 클리어','menu':'메뉴','list':'어비스 목록','raid_menu':'레이드 메뉴','raid_list':'카브락 목록','raid_detail':'레이드 설정','raid_travel':'레이드 지역 이동','raid_boat':'배 탑승·퀘스트 출항','raid_cutscene':'출항 장면','raid_inside':'카브락 입장·음식 확인','raid_weekend':'주말 레이드 퀘스트 보상','raid_return':'카브락 토벌 완료·배 복귀'}.get(observation.screen,observation.screen)))
+                    status=(controller.state.value,controller.reason or ('감지: '+{'unknown':'화면 확인 중','dead':'행동 불능·여기서 부활 확인','field':'일반 화면','combat':'전투','detail':'입장 설정','matching':'우연한 만남 대기','loading':'로딩','cutscene':'보스 연출','reward':'보상','mission':'협동 미션','clear':'던전 클리어','menu':'메뉴','list':'어비스 목록','raid_menu':'레이드 메뉴','raid_list':'카브락 목록','raid_detail':'레이드 설정','raid_travel':'레이드 지역 이동','raid_boat':'배 탑승·퀘스트 출항','raid_cutscene':'출항 장면','raid_inside':'카브락 입장·음식 확인','raid_weekend':'주말 레이드 퀘스트 보상','raid_reward':'카브락 처치 완료 보상','raid_return':'카브락 토벌 완료·배 복귀'}.get(observation.screen,observation.screen)))
                     if observation.screen=='field' and controller.state==State.IDLE:
                         status=(status[0],status[1]+' / '+observation.motion_note)
                         motion_mode=observation.motion_note.split('(')[0]

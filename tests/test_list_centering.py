@@ -40,3 +40,24 @@ def test_focus_change_or_stop_interrupts_without_final_jump():
     points.clear()
     assert not smooth_move((0,0),(400,500),points.append,lambda:True,lambda _:True)
     assert len(points)==1
+
+
+def test_raid_entry_parks_once_and_preserves_latch_across_combat_revive_and_popups():
+    from list_centering import RaidEntryCentering,RAID_PARK_POINT
+    assert RAID_PARK_POINT==(400,500)
+    c=RaidEntryCentering()
+    assert not c.observe('raid_inside') and c.observe('raid_inside')
+    # An interrupted movement stays pending until completed.
+    assert c.observe('raid_inside');c.completed()
+    for screen in ['raid_inside','unknown','mission','raid_inside','dead','raid_inside','combat','raid_cutscene','raid_reward','raid_weekend','raid_inside']:
+        assert not c.observe(screen)
+    assert not c.observe('raid_return')
+    assert not c.observe('raid_boat')
+    assert not c.observe('raid_inside') and c.observe('raid_inside')
+
+
+def test_other_screens_and_abyss_never_request_raid_entry_centering():
+    from list_centering import RaidEntryCentering
+    c=RaidEntryCentering()
+    for screen in ['field','list','detail','combat','raid_menu','raid_list','raid_detail','raid_boat','raid_cutscene','raid_reward','dead']:
+        assert not c.observe(screen) and not c.observe(screen)

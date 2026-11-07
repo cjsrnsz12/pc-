@@ -108,7 +108,8 @@ def test_native_click_without_manual_pointer_movement(monkeypatch,native_root):
     finally:root.destroy()
 
 
-def test_native_list_center_move_ends_at_client_center_without_click(monkeypatch,native_root):
+@pytest.mark.parametrize('method,target',[('center_list_pointer',(400,350)),('center_raid_pointer',(400,500))])
+def test_native_list_center_move_ends_at_client_center_without_click(monkeypatch,native_root,method,target):
     import tkinter as tk
     import threading
     import ctypes as C
@@ -123,12 +124,12 @@ def test_native_list_center_move_ends_at_client_center_without_click(monkeypatch
     monkeypatch.setattr(win,'rect',lambda handle:(left,top,800,1000))
     try:
         win.u.SetForegroundWindow(hwnd);root.focus_force();root.update()
-        assert win.center_list_pointer(hwnd,threading.Event())
+        assert getattr(win,method)(hwnd,threading.Event())
         point=W.POINT();assert win.u.GetCursorPos(C.byref(point))
-        assert (point.x,point.y)==(left+400,top+350)
+        assert (point.x,point.y)==(left+target[0],top+target[1])
         root.update();assert not clicks
         stopped=threading.Event();stopped.set()
-        assert not win.center_list_pointer(hwnd,stopped)
+        assert not getattr(win,method)(hwnd,stopped)
         again=W.POINT();win.u.GetCursorPos(C.byref(again))
         assert (again.x,again.y)==(point.x,point.y)
     finally:root.destroy()

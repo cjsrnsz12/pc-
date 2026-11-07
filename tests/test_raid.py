@@ -70,7 +70,7 @@ def test_travel_wing_is_not_detected_without_raid_navigation_goal():
 def test_starting_on_navigation_can_press_wing_only_once():
     c=RaidController();o=RaidObservation('raid_travel',{'wing':(585,872)})
     assert c.step(o,0).key=='raid_wing'
-    assert c.step(o,10) is None
+    assert c.step(o,1) is None
     assert c.step(o,241) is None and c.state==State.BLOCKED
 
 
@@ -140,7 +140,7 @@ def test_starting_on_boat_or_intro_resumes_without_reopening_menu():
     assert c.step(v.observe(frame('boat')),0).key=='raid_boat_depart'
     assert c.step(Observation('field',{'menu':(770,65)},still=True),1) is None
     assert c.step(v.observe(frame('intro')),2).key=='raid_intro_skip'
-    assert c.step(v.observe(frame('intro')),10) is None
+    assert c.step(v.observe(frame('intro')),3) is None
     assert c.step(v.observe(frame('inside')),11).key=='food'
     assert c.step(Observation('field',{'menu':(770,65)},still=True),30) is None
 
@@ -148,7 +148,7 @@ def test_starting_on_boat_or_intro_resumes_without_reopening_menu():
 def test_raid_entry_timeout_keeps_repeated_cutscene_safe():
     c=RaidController();o=Observation('raid_cutscene',{'skip':(725,66)})
     assert c.step(o,0).key=='raid_intro_skip'
-    assert c.step(o,10) is None
+    assert c.step(o,1) is None
     assert c.step(o,241) is None and c.state==State.BLOCKED
 
 
@@ -342,3 +342,75 @@ def test_weekend_popup_during_return_keeps_latch_until_boat():
     assert c.step(Observation('loading'),3) is None and c.phase=='returning'
     assert c.step(v.observe(frame('return')),4) is None
     assert c.step(v.observe(frame('returned_boat')),5).key=='raid_boat_depart'
+
+
+@pytest.mark.parametrize('background',[40,150,220,240])
+@pytest.mark.parametrize('scale',[.8,1.,1.25])
+def test_entry_skip_lettering_survives_background_scale_and_position_changes(background,scale):
+    v=RaidVision(ROOT/'assets.json')
+    # Use the supplied skip lettering against dark/bright moving-scene colors.
+    source=v.templates['skip'][0].astype(np.float32)
+    alpha=np.clip((source-130)/125,0,1)
+    letters=cv2.resize((background*(1-alpha)+255*alpha).astype(np.uint8),None,fx=scale,fy=scale)
+    h,w=letters.shape;f=np.full((1000,800,3),background,np.uint8)
+    x,y=640,115;f[y:y+h,x:x+w]=cv2.cvtColor(letters,cv2.COLOR_GRAY2BGR)
+    o=v.observe(f)
+    assert o.screen=='raid_cutscene'
+    assert max(abs(a-b) for a,b in zip(o.points['skip'],(x+w//2,y+h//2)))<=3
+
+
+@pytest.mark.parametrize('kind',['flat','border','partial'])
+def test_skip_outline_matching_needs_both_words_not_a_bright_box(kind):
+    v=RaidVision(ROOT/'assets.json');f=np.zeros((1000,800,3),np.uint8)
+    if kind=='flat':f[30:145,580:790]=245
+    elif kind=='border':cv2.rectangle(f,(610,40),(785,100),(245,245,245),2)
+    else:
+        t=v.templates['skip'][0];h,w=t.shape
+        f[70:70+h,670:670+w]=cv2.cvtColor(t,cv2.COLOR_GRAY2BGR)
+        f[70:70+h,670:670+int(w*.42)]=0
+    assert v.observe(f).screen!='raid_cutscene'
+
+
+def test_skip_has_priority_over_lingering_boat_hud_during_transition():
+    v=RaidVision(ROOT/'assets.json');f=frame('boat');intro=frame('intro')
+    f[25:110,620:795]=intro[25:110,620:795]
+    assert v.observe(f).screen=='raid_cutscene'
+
+
+def test_failed_intro_click_rechecks_current_button_and_retries_with_limit():
+    v=RaidVision(ROOT/'assets.json');c=RaidController();o=v.observe(frame('intro'))
+    assert c.step(o,0).key=='raid_intro_skip'
+    for t in (.7,1,2.4):assert c.step(o,t) is None
+    assert c.step(Observation(),2.45) is None
+    assert c.step(o,2.5).key=='raid_intro_skip'
+    assert c.step(o,5).key=='raid_intro_skip'
+    assert c.step(o,7.5) is None and c.state==State.BLOCKED
+
+
+def test_intro_retry_stops_as_soon_as_current_screen_confirms_entry():
+    v=RaidVision(ROOT/'assets.json');c=RaidController()
+    assert c.step(v.observe(frame('intro')),0).key=='raid_intro_skip'
+    c.step(v.observe(frame('inside')),1)
+    for t in (3,6,10):assert c.step(v.observe(frame('inside')),t) is None
+    assert c.phase=='inside' and c.state==State.COMBAT
+
+
+@pytest.mark.parametrize('size',[(800,1000),(784,980),(640,800)])
+def test_supplied_failure_capture_clear_reward_confirms_then_returns_to_ship(size):
+    v=RaidVision(ROOT/'assets.json');c=RaidController();c.phase='sailing';c.intro_skipped=True
+    o=v.observe(cv2.resize(frame('clear_reward'),size))
+    assert o.screen=='raid_reward'
+    action=c.step(o,0)
+    assert action.key=='raid_reward_confirm' and action.point==o.points['confirm']
+    assert c.step(o,1) is None
+    assert c.step(v.observe(frame('return')),2).key=='raid_return'
+    assert c.step(v.observe(frame('returned_boat')),3).key=='raid_boat_depart'
+
+
+@pytest.mark.parametrize('missing',['name','done','green'])
+def test_kabrak_reward_confirmation_requires_boss_name_completion_and_green_button(missing):
+    v=RaidVision(ROOT/'assets.json');f=frame('clear_reward')
+    if missing=='name':f[120:165,345:460]=0
+    elif missing=='done':f[175:205,345:460]=0
+    else:f[910:985,170:630]=cv2.cvtColor(cv2.cvtColor(f[910:985,170:630],cv2.COLOR_BGR2GRAY),cv2.COLOR_GRAY2BGR)
+    assert v.observe(f).screen!='raid_reward'

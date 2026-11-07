@@ -6,7 +6,7 @@ from game_identity import is_game_window
 from window_sizing import covers_monitor, fit_framed_position, fitted_client, supported_client, client_point
 from privileges import process_elevated
 from mouse_sequence import deliver_click
-from list_centering import smooth_move,LIST_PARK_POINT
+from list_centering import smooth_move,LIST_PARK_POINT,RAID_PARK_POINT
 
 
 def dpi_aware():
@@ -249,6 +249,12 @@ class Windows:
         return (bool(self.u.GetAsyncKeyState(0x77)&0x8000), bool(self.u.GetAsyncKeyState(0x78)&0x8000))
 
     def center_list_pointer(self,hwnd,cancel):
+        return self.park_pointer(hwnd,cancel,LIST_PARK_POINT)
+
+    def center_raid_pointer(self,hwnd,cancel):
+        return self.park_pointer(hwnd,cancel,RAID_PARK_POINT)
+
+    def park_pointer(self,hwnd,cancel,target):
         self.ensure_game(hwnd)
         self.require_control_permission(hwnd)
         rect=self.rect(hwnd)
@@ -262,7 +268,7 @@ class Windows:
             return not cancel.is_set() and self.active(hwnd) and self.rect(hwnd)==rect
         def emit(position):
             if not self.u.SetCursorPos(*position):raise WindowError('중앙으로 마우스를 이동하지 못했습니다.')
-        px,py=client_point(LIST_PARK_POINT,(width,height))
+        px,py=client_point(target,(width,height))
         return smooth_move((point.x,point.y),(left+px,top+py),emit,ready,cancel.wait)
 
     def click(self, hwnd, point):

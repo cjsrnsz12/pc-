@@ -1,6 +1,7 @@
 """One pointer preparation per Abyss-list visit, followed by fresh recognition."""
 
 LIST_PARK_POINT=(400,350)
+RAID_PARK_POINT=(400,500)
 
 
 class ListCentering:
@@ -19,6 +20,23 @@ class ListCentering:
     def completed(self):
         self.prepared=True
         self.frames=0
+
+
+class RaidEntryCentering:
+    """Park once per verified raid entry; HUD gaps and revival are the same run."""
+    def __init__(self):
+        self.prepared=False;self.frames=0
+
+    def observe(self,screen):
+        if screen=='raid_inside':self.frames+=1
+        else:
+            self.frames=0
+            if screen in ('raid_boat','raid_detail','raid_return','raid_travel','raid_list','raid_menu'):
+                self.prepared=False
+        return screen=='raid_inside' and self.frames>=2 and not self.prepared
+
+    def completed(self):
+        self.prepared=True;self.frames=0
 
 
 def smooth_move(start,target,emit,ready,wait,steps=20):

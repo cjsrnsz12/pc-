@@ -5,7 +5,7 @@ import base64
 import cv2
 import numpy as np
 from engine import Controller,Observation,State
-from vision import Vision
+from vision import Vision,Hit
 from raid_templates import RAID_TEMPLATES
 
 RAID_DIFFICULTIES=['입문','어려움']
@@ -23,8 +23,35 @@ class RaidVision(Vision):
         for name,item in RAID_TEMPLATES.items():
             png=cv2.imdecode(np.frombuffer(base64.b64decode(item['png']),np.uint8),cv2.IMREAD_GRAYSCALE)
             self.templates[name]=[cv2.resize(png,None,fx=s,fy=s) for s in item['scales']]
-            if name in ('r_return_title','r_return_hint'):
+            if name in ('r_return_title','r_return_hint','r_clear_name','r_clear_done','r_clear_confirm'):
                 self.templates[name].append(cv2.GaussianBlur(png,(3,3),.5))
+        self.skip_edges=[]
+        for name in ('r_intro_skip','r_defeat_skip','skip'):
+            # Remove the moving sky/ship background while retaining both light
+            # and dark sides of the white lettering. Never match the border alone.
+            template=self.templates[name][0]
+            for scale in (.75,.8,.85,.9,.95,1.,1.05,1.1,1.15,1.2,1.25,1.3):
+                text=cv2.resize(template,None,fx=scale,fy=scale).astype(np.float32)
+                self.skip_edges.append(np.clip((text-cv2.GaussianBlur(text,(0,0),1.2))*3+128,0,255).astype(np.uint8))
+
+    def raid_skip_button(self):
+        original=self.hit('r_intro_skip') or self.hit('r_defeat_skip')
+        if original:return original
+        x,y,x2,y2=520,15,800,170
+        roi=self.gray[y:y2,x:x2].astype(np.float32)
+        edges=np.clip((roi-cv2.GaussianBlur(roi,(0,0),1.2))*3+128,0,255).astype(np.uint8)
+        best=None
+        for template in self.skip_edges:
+            h,w=template.shape
+            if h>edges.shape[0] or w>edges.shape[1]:continue
+            _,score,_,pos=cv2.minMaxLoc(cv2.matchTemplate(edges,template,cv2.TM_CCOEFF_NORMED))
+            if score>=.72:
+                px,py=pos;candidate=edges[py:py+h,px:px+w];split=int(w*.42)
+                parts=[(candidate[:,:split],template[:,:split]),(candidate[:,split:],template[:,split:])]
+                if any(float(cv2.matchTemplate(a,b,cv2.TM_CCOEFF_NORMED)[0,0])<.55 for a,b in parts):continue
+            if best is None or score>best.score:best=Hit(score,(x+pos[0],y+pos[1],w,h))
+        self.scores['raid_skip_edges']=round(best.score,4) if best else None
+        return best if best and best.score>=.72 else None
 
     def bread_button(self):
         button=self.hit('r_food_bread')
@@ -44,7 +71,13 @@ class RaidVision(Vision):
             x,y=button.center
             if self.color_fraction((x-140,y-13,x+140,y+15),'green')>.40:
                 return RaidObservation('raid_weekend',{'confirm':button.center})
+        if self.hit('r_clear_name') and self.hit('r_clear_done') and (button:=self.hit('r_clear_confirm')):
+            x,y=button.center
+            if self.color_fraction((x-140,y-15,x+140,y+15),'green')>.40:
+                return RaidObservation('raid_reward',{'confirm':button.center})
         if self.hit('mission') and (button:=self.hit('confirm')):return Observation('mission',{'confirm':button.center})
+        if (button:=self.raid_skip_button()):
+            return RaidObservation('raid_cutscene',{'skip':button.center})
         if (title:=self.hit('r_return_title')) and self.hit('r_return_hint'):
             x,y,w,h=title.box
             hsv=cv2.cvtColor(self.frame[y+h:y+h+32,max(0,x-10):min(800,x+w)],cv2.COLOR_BGR2HSV)
@@ -53,8 +86,6 @@ class RaidVision(Vision):
             return RaidObservation('raid_return',{'return':title.center},return_active=active)
         if self.hit('r_boat_task') and (button:=self.hit('r_boat_depart')):
             return RaidObservation('raid_boat',{'boat_depart':button.center})
-        if (button:=self.hit('r_intro_skip') or self.hit('r_defeat_skip')):
-            return RaidObservation('raid_cutscene',{'skip':button.center})
         hud=self.color_fraction((80,85,214,110),'green')>.10
         if hud and self.hit('r_inside_goal'):
             bread=self.bread_button()
@@ -85,7 +116,10 @@ class RaidVision(Vision):
             anchors=[self.hit('abyss'),self.hit('abyss_collab'),self.hit('menu_field_boss')]
             if any(a and 110<=button.center[0]-a.center[0]<=245 and abs(button.center[1]-a.center[1])<=15 for a in anchors):
                 return RaidObservation('raid_menu',{'raid':button.center})
+        raid_scores=dict(self.scores)
         observed=super().observe(frame,'허상의 정박지',difficulty)
+        self.scores={**raid_scores,**self.scores}
+        if observed.screen=='cutscene':return RaidObservation('raid_cutscene',observed.points)
         return replace(observed,food=False,points={k:v for k,v in observed.points.items() if k!='food'}) if observed.screen in ('field','combat','mission','clear','reward','loading','matching') else Observation()
 
 
@@ -130,7 +164,7 @@ class RaidController(Controller):
             if o.screen in ('raid_inside','combat'):
                 self.phase='inside';self.state=State.COMBAT;self.entered_at=None;self.clear_seen_at=None
                 self.reason='주말 보상 후 현재 전투 화면 확인'
-            elif o.screen in ('clear','reward'):
+            elif o.screen in ('clear','reward','raid_reward'):
                 self.phase='aftermath';self.state=State.CLEAR if o.screen=='clear' else State.REWARD
                 self.reason='주말 보상 후 현재 레이드 결과 화면 확인'
             elif o.screen in ('loading','matching'):
@@ -153,6 +187,10 @@ class RaidController(Controller):
                 return None
             self.weekend_resync=False;self.weekend_attempts=0
             return None
+        if o.screen=='raid_reward':
+            self.phase='aftermath';self.state=State.REWARD;self.clear_seen_at=None
+            self.reason='카브락 처치 완료 보상 · 초록색 확인 버튼 확인'
+            return self.emit('raid_reward_confirm',o.points.get('confirm'),'카브락·처치 완료·초록 확인 검증 → 보상 확인 후 현재 화면 재인식',now)
         if o.screen=='raid_return':
             self.state=State.ENTERING;self.reason='카브락 토벌 완료 · 출항선 복귀 대기'
             if self.phase!='returning':
@@ -208,8 +246,7 @@ class RaidController(Controller):
         if o.screen=='raid_cutscene':
             self.phase='sailing';self.state=State.ENTERING;self.reason='출항 장면 확인 · 레이드 입장 대기'
             if self.entered_at is None:self.entered_at=now
-            if self.intro_skipped:return None
-            action=self.emit('raid_intro_skip',o.points.get('skip'),'레이드 출항 장면 넘기기 한 번 클릭',now)
+            action=self.emit('raid_intro_skip',o.points.get('skip'),'레이드 입장 장면 넘기기 · 화면 재확인 후 최대 3회 클릭',now)
             if action:self.intro_skipped=True
             return action
         if self.phase=='launching':
