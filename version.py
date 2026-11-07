@@ -1,2 +1,2 @@
-VERSION = '1.1.30'
+VERSION = '1.1.31'
 REPOSITORY = 'cjsrnsz12/pc-'

@@ -292,10 +292,10 @@ def test_brief_popup_detection_gap_cannot_cause_rapid_reconfirm():
 @pytest.mark.parametrize('size',[(800,1000),(784,980),(640,800)])
 def test_return_quest_and_moving_highlight_recognition(size):
     v=RaidVision(ROOT/'assets.json')
-    for name,active in [('return',False),('return_active',True)]:
+    for name in ['return','return_active','return_new']:
         o=v.observe(cv2.resize(frame(name),size))
-        assert o.screen=='raid_return' and o.return_active==active
-        assert 650<=o.points['return'][0]<=785
+        assert o.screen=='raid_return' and o.return_ready
+        assert 740<=o.points['exit'][0]<=790 and o.points['exit'][1]<180
     assert v.observe(cv2.resize(frame('returned_boat'),size)).screen=='raid_boat'
 
 
@@ -315,8 +315,9 @@ def test_two_complete_raid_loops_rearm_departure_and_both_cutscenes():
         assert c.step(observe('defeat'),start+1).key=='raid_defeat_skip'
         assert c.step(Observation('reward'),start+2) is None
         o=observe('return');a=c.step(o,start+3)
-        assert a.key=='raid_return' and a.point==o.points['return']
-        for t,n in [(4,'return'),(8,'return_active')]:assert c.step(observe(n),start+t) is None
+        assert a.key=='raid_exit' and a.point==o.points['exit']
+        assert c.step(observe('return_dialog'),start+4).key=='raid_return_ship'
+        for t,n in [(5,'return'),(8,'return_active')]:assert c.step(observe(n),start+t) is None
         assert c.step(Observation('field',{'menu':(770,60)},still=True),start+9) is None
         assert c.phase=='returning'
         assert c.step(observe('returned_boat'),start+10).key=='raid_boat_depart'
@@ -327,17 +328,19 @@ def test_two_complete_raid_loops_rearm_departure_and_both_cutscenes():
     assert c.repeats==2 and c.phase=='inside'
 
 
-def test_already_moving_return_quest_waits_without_clicking_and_times_out():
+def test_cyan_quest_highlight_still_uses_exit_icon_and_ship_dialog():
     c=RaidController();v=RaidVision(ROOT/'assets.json')
-    assert c.step(v.observe(frame('return_active')),0) is None
+    assert c.step(v.observe(frame('return_active')),0).key=='raid_exit'
+    assert c.step(v.observe(frame('return_dialog')),1).key=='raid_return_ship'
     assert c.return_requested and c.phase=='returning'
     assert c.step(v.observe(frame('return')),241) is None and c.state==State.BLOCKED
 
 
 def test_weekend_popup_during_return_keeps_latch_until_boat():
     c=RaidController();v=RaidVision(ROOT/'assets.json')
-    assert c.step(v.observe(frame('return')),0).key=='raid_return'
-    assert c.step(v.observe(frame('weekend')),1).key=='raid_weekend_confirm'
+    assert c.step(v.observe(frame('return')),0).key=='raid_exit'
+    assert c.step(v.observe(frame('return_dialog')),.7).key=='raid_return_ship'
+    assert c.step(v.observe(frame('weekend')),1.5).key=='raid_weekend_confirm'
     assert c.step(Observation('loading'),2) is None
     assert c.step(Observation('loading'),3) is None and c.phase=='returning'
     assert c.step(v.observe(frame('return')),4) is None
@@ -403,8 +406,9 @@ def test_supplied_failure_capture_clear_reward_confirms_then_returns_to_ship(siz
     action=c.step(o,0)
     assert action.key=='raid_reward_confirm' and action.point==o.points['confirm']
     assert c.step(o,1) is None
-    assert c.step(v.observe(frame('return')),2).key=='raid_return'
-    assert c.step(v.observe(frame('returned_boat')),3).key=='raid_boat_depart'
+    assert c.step(v.observe(frame('return')),2).key=='raid_exit'
+    assert c.step(v.observe(frame('return_dialog')),3).key=='raid_return_ship'
+    assert c.step(v.observe(frame('returned_boat')),4).key=='raid_boat_depart'
 
 
 @pytest.mark.parametrize('missing',['name','done','green'])
@@ -414,3 +418,34 @@ def test_kabrak_reward_confirmation_requires_boss_name_completion_and_green_butt
     elif missing=='done':f[175:205,345:460]=0
     else:f[910:985,170:630]=cv2.cvtColor(cv2.cvtColor(f[910:985,170:630],cv2.COLOR_BGR2GRAY),cv2.COLOR_GRAY2BGR)
     assert v.observe(f).screen!='raid_reward'
+
+
+@pytest.mark.parametrize('size',[(800,1000),(784,980),(640,800)])
+def test_exit_popup_from_supplied_screen_matches_ship_button_not_party_exit(size):
+    v=RaidVision(ROOT/'assets.json');c=RaidController()
+    o=v.observe(cv2.resize(frame('return_dialog'),size))
+    assert o.screen=='raid_return_dialog' and o.return_ready
+    a=c.step(o,0)
+    assert a.key=='raid_return_ship' and a.point==o.points['ship']
+    assert 430<a.point[0]<575 and a.point[1]>800
+    assert c.step(o,1) is None
+    assert c.step(o,2.5).key=='raid_return_ship'
+    assert c.step(o,5).key=='raid_return_ship'
+    assert c.step(o,7.5) is None and c.state==State.BLOCKED
+
+
+def test_completed_quest_without_exit_icon_never_clicks_the_quest():
+    v=RaidVision(ROOT/'assets.json');f=frame('return_new');f[75:180,710:800]=0
+    o=v.observe(f)
+    assert o.screen=='raid_return' and not o.points
+    assert RaidController().step(o,0) is None
+
+
+@pytest.mark.parametrize('missing',['ship','green','completion'])
+def test_missing_ship_button_or_completion_never_clicks_party_exit(missing):
+    v=RaidVision(ROOT/'assets.json');f=frame('return_dialog')
+    if missing=='ship':f[810:890,420:580]=0
+    elif missing=='green':f[810:890,420:580]=cv2.cvtColor(cv2.cvtColor(f[810:890,420:580],cv2.COLOR_BGR2GRAY),cv2.COLOR_GRAY2BGR)
+    else:f[245:330,610:800]=0
+    o=v.observe(f);assert o.screen=='raid_return_dialog'
+    assert RaidController().step(o,0) is None

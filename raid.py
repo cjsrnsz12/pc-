@@ -13,7 +13,7 @@ RAID_DIFFICULTIES=['입문','어려움']
 @dataclass(frozen=True)
 class RaidObservation(Observation):
     solo: bool | None=None
-    return_active: bool=False
+    return_ready: bool=False
 
 
 class RaidVision(Vision):
@@ -23,7 +23,7 @@ class RaidVision(Vision):
         for name,item in RAID_TEMPLATES.items():
             png=cv2.imdecode(np.frombuffer(base64.b64decode(item['png']),np.uint8),cv2.IMREAD_GRAYSCALE)
             self.templates[name]=[cv2.resize(png,None,fx=s,fy=s) for s in item['scales']]
-            if name in ('r_return_title','r_return_hint','r_clear_name','r_clear_done','r_clear_confirm'):
+            if name in ('r_return_title','r_return_title_new','r_return_hint','r_clear_name','r_clear_done','r_clear_confirm','r_exit_icon','r_exit_dialog','r_return_ship'):
                 self.templates[name].append(cv2.GaussianBlur(png,(3,3),.5))
         self.skip_edges=[]
         for name in ('r_intro_skip','r_defeat_skip','skip'):
@@ -75,15 +75,20 @@ class RaidVision(Vision):
             x,y=button.center
             if self.color_fraction((x-140,y-15,x+140,y+15),'green')>.40:
                 return RaidObservation('raid_reward',{'confirm':button.center})
+        if self.hit('r_exit_dialog'):
+            points={}
+            if (button:=self.hit('r_return_ship')):
+                x,y=button.center
+                if self.color_fraction((x-80,y-13,x+80,y+13),'green')>.35:
+                    points['ship']=button.center
+            completed=bool((self.hit('r_return_title') or self.hit('r_return_title_new')) and self.hit('r_return_hint'))
+            return RaidObservation('raid_return_dialog',points,return_ready=completed)
         if self.hit('mission') and (button:=self.hit('confirm')):return Observation('mission',{'confirm':button.center})
         if (button:=self.raid_skip_button()):
             return RaidObservation('raid_cutscene',{'skip':button.center})
-        if (title:=self.hit('r_return_title')) and self.hit('r_return_hint'):
-            x,y,w,h=title.box
-            hsv=cv2.cvtColor(self.frame[y+h:y+h+32,max(0,x-10):min(800,x+w)],cv2.COLOR_BGR2HSV)
-            hue,saturation,value=cv2.split(hsv)
-            active=float(np.mean((hue>=85)&(hue<=110)&(saturation>60)&(value>60)))>.10
-            return RaidObservation('raid_return',{'return':title.center},return_active=active)
+        if (self.hit('r_return_title') or self.hit('r_return_title_new')) and self.hit('r_return_hint'):
+            button=self.hit('r_exit_icon')
+            return RaidObservation('raid_return',{'exit':button.center} if button else {},return_ready=True)
         if self.hit('r_boat_task') and (button:=self.hit('r_boat_depart')):
             return RaidObservation('raid_boat',{'boat_depart':button.center})
         hud=self.color_fraction((80,85,214,110),'green')>.10
@@ -168,16 +173,16 @@ class RaidController(Controller):
                 self.phase='aftermath';self.state=State.CLEAR if o.screen=='clear' else State.REWARD
                 self.reason='주말 보상 후 현재 레이드 결과 화면 확인'
             elif o.screen in ('loading','matching'):
-                self.phase='returning' if self.return_requested else 'boarding';self.state=State.ENTERING;self.entered_at=now;self.clear_seen_at=None
+                self.phase='returning' if self.phase=='returning' else 'boarding';self.state=State.ENTERING;self.entered_at=now;self.clear_seen_at=None
                 self.reason='주말 보상 후 현재 입장·로딩 화면 확인'
             elif o.screen=='field':
-                self.phase='returning' if self.return_requested else 'post_popup_field';self.state=State.IDLE;self.reason='주말 보상 후 일반 지역 확인 · 후속 진행 대기'
+                self.phase='returning' if self.phase=='returning' else 'post_popup_field';self.state=State.IDLE;self.reason='주말 보상 후 일반 지역 확인 · 후속 진행 대기'
             elif o.screen in ('raid_detail','raid_menu','raid_list'):
                 self.phase='prepare';self.state=State.SCAN;self.entered_at=None;self.clear_seen_at=None
                 self.reason='주말 보상 후 레이드 설정·메뉴 재확인'
             elif o.screen=='raid_boat':
                 self.state=State.ENTERING;self.reason='주말 보상 후 배 탑승 화면 확인'
-            elif o.screen=='raid_return':
+            elif o.screen in ('raid_return','raid_return_dialog'):
                 self.state=State.CLEAR;self.reason='주말 보상 후 카브락 토벌 완료 확인'
             elif o.screen=='raid_cutscene':
                 self.state=State.CLEAR if self.phase=='aftermath' else State.ENTERING
@@ -187,19 +192,28 @@ class RaidController(Controller):
                 return None
             self.weekend_resync=False;self.weekend_attempts=0
             return None
+        if self.phase=='returning' and self.entered_at is not None and now-self.entered_at>240:
+            self.state,self.reason=State.BLOCKED,'출항선 복귀 대기가 4분을 넘었습니다. 화면을 확인하세요.'
+            return None
         if o.screen=='raid_reward':
             self.phase='aftermath';self.state=State.REWARD;self.clear_seen_at=None
             self.reason='카브락 처치 완료 보상 · 초록색 확인 버튼 확인'
             return self.emit('raid_reward_confirm',o.points.get('confirm'),'카브락·처치 완료·초록 확인 검증 → 보상 확인 후 현재 화면 재인식',now)
         if o.screen=='raid_return':
-            self.state=State.ENTERING;self.reason='카브락 토벌 완료 · 출항선 복귀 대기'
+            self.state=State.ENTERING;self.reason='카브락 토벌 완료 · 우상단 나가기 아이콘 확인'
             if self.phase!='returning':
                 self.phase='returning';self.entered_at=now
-            if getattr(o,'return_active',False):self.return_requested=True
             if not self.return_requested:
-                action=self.emit('raid_return',o.points.get('return'),'카브락 토벌 완료 퀘스트 선택 → 배로 복귀 대기',now)
-                if action:self.return_requested=True
-                return action
+                return self.emit('raid_exit',o.points.get('exit'),'카브락 토벌 완료 문구 확인 → 우상단 나가기 아이콘 선택',now)
+        if o.screen=='raid_return_dialog':
+            if self.phase!='returning' and not getattr(o,'return_ready',False):
+                self.state=State.WAIT;self.reason='토벌 완료가 확인되지 않아 출항선 이동을 보류합니다.'
+                return None
+            if self.phase!='returning':self.phase='returning';self.entered_at=now
+            self.state=State.ENTERING;self.reason='레이드 나가기 확인창 · 출항선으로 이동 버튼 확인'
+            action=self.emit('raid_return_ship',o.points.get('ship'),'레이드 나가기 확인창 → 출항선으로 이동 (파티·던전 나가기 제외)',now)
+            if action:self.return_requested=True
+            return action
         if self.phase=='returning':
             if o.screen=='raid_boat':
                 self.repeats+=1
