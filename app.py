@@ -33,6 +33,7 @@ import mss
 import numpy as np
 from PIL import Image, ImageTk
 from engine import Controller, Observation, State
+from raid import RaidController,RaidVision,RAID_DIFFICULTIES
 from recognition_timing import poll_interval, same_detection
 from list_centering import ListCentering
 from capture_guard import CapturePause, within_desktop
@@ -73,6 +74,7 @@ class App:
         self.stop_event = threading.Event()
         self.worker = None
         self.running = False
+        self.raid_confirming = False
         self.sizing_busy = False
         self.closing = False
         self.update_busy = False
@@ -179,14 +181,14 @@ class App:
         self.content=tk.StringVar(value=self.settings.get('content','어비스'))
         if self.content.get() not in CONTENT_TYPES:self.content.set('어비스')
         self.content_box=SmoothChoice(destination_section,textvariable=self.content,values=CONTENT_TYPES);self.content_box.pack(fill='x')
-        self.content_hint=ttk.Label(destination_section,text='레이드 · 준비 중',foreground='#ffc454',padding=(0,12))
+        self.content_hint=ttk.Label(destination_section,text='레이드 · 준비 중',foreground='#ffc454',padding=(0,12),wraplength=650)
         options=self.destination_options=ttk.Frame(destination_section);options.pack(fill='x',pady=(12,0))
         options.columnconfigure(0,weight=1);options.columnconfigure(1,weight=1)
         ttk.Label(options,text='목적지').grid(row=0,column=0,sticky='w',pady=(0,5))
         ttk.Label(options,text='난이도').grid(row=0,column=1,sticky='w',padx=(12,0),pady=(0,5))
-        self.dungeon=tk.StringVar(value=self.settings.get('dungeon','허상의 정박지'))
+        self.dungeon=tk.StringVar(value=self.settings.get('abyss_dungeon',self.settings.get('dungeon','허상의 정박지')))
         if self.dungeon.get() not in DUNGEONS:self.dungeon.set('허상의 정박지')
-        self.difficulty=tk.StringVar(value=self.settings.get('difficulty','매우 어려움'))
+        self.difficulty=tk.StringVar(value=self.settings.get('abyss_difficulty',self.settings.get('difficulty','매우 어려움')))
         if self.difficulty.get() not in DIFFICULTIES:self.difficulty.set('매우 어려움')
         self.dungeon_box=SmoothChoice(options,textvariable=self.dungeon,values=list(DUNGEONS),command=self.destination_changed);self.dungeon_box.grid(row=1,column=0,sticky='ew')
         self.difficulty_box=SmoothChoice(options,textvariable=self.difficulty,values=DIFFICULTIES,colors=DIFFICULTY_COLORS);self.difficulty_box.grid(row=1,column=1,sticky='ew',padx=(12,0))
@@ -200,8 +202,9 @@ class App:
         self.mode_box=SmoothChoice(page,textvariable=self.play_mode,values=PLAY_MODES);self.mode_box.pack(fill='x',pady=(0,4))
         self.mode_hint=tk.StringVar(value='솔로 플레이: 보상 화면에서 다시 하기 · 파티 플레이: 준비 중')
         ttk.Label(page,textvariable=self.mode_hint,style='Muted.TLabel').pack(anchor='w')
+        self.entry_hint=tk.StringVar(value='입장 조건: 함께하기 · 선택한 난이도 · 우연한 만남 ON')
         self.food_check=SmoothCheckbutton(page,text='음식 아이콘이 나타나면 한 번 클릭',variable=self.food);self.food_check.pack(anchor='w')
-        ttk.Label(page,text='입장 조건: 함께하기 · 선택한 난이도 · 우연한 만남 ON',style='Muted.TLabel').pack(anchor='w',pady=(4,10))
+        ttk.Label(page,textvariable=self.entry_hint,style='Muted.TLabel').pack(anchor='w',pady=(4,10))
         controls=ttk.Frame(page);controls.pack(fill='x',pady=(0,10))
         self.start_button=ttk.Button(controls,text='▶  시작   F8',style='Start.TButton',command=self.start);self.start_button.pack(side='left',fill='x',expand=True)
         self.stop_button=ttk.Button(controls,text='■  중지   F9',style='Stop.TButton',command=self.stop,state='disabled');self.stop_button.pack(side='left',fill='x',expand=True,padx=(10,0))
@@ -217,6 +220,9 @@ class App:
         ttk.Label(bottom,textvariable=self.update_text,style='Muted.TLabel').pack(side='left')
         self.update_button=ttk.Button(bottom,text='업데이트 소식',command=self.open_update_notice);self.update_button.pack(side='right')
         ttk.Button(bottom,text='권한 확인',command=self.check_permissions).pack(side='right',padx=(0,8))
+        self._active_content='어비스'
+        self._content_values={'어비스':(self.dungeon.get(),self.difficulty.get()),'레이드':('카브락',self.settings.get('raid_difficulty','입문'))}
+        if self._content_values['레이드'][1] not in RAID_DIFFICULTIES:self._content_values['레이드']=('카브락','입문')
         self.content.trace_add('write',self.content_changed)
         self.content_changed()
         smooth_buttons(self.root)
@@ -246,20 +252,38 @@ class App:
         if isinstance(event.widget,(tk.Text,ttk.Combobox)):return
         self.page_canvas.yview_scroll(-int(event.delta/120),'units')
 
+    def collect_settings(self):
+        self._content_values[self._active_content]=(self.dungeon.get(),self.difficulty.get())
+        abyss=self._content_values['어비스'];raid=self._content_values['레이드']
+        return dict(self.settings,dungeon=self.dungeon.get(),difficulty=self.difficulty.get(),repeat=self.repeat.get(),
+                    food=self.food.get(),play_mode=self.play_mode.get(),content=self.content.get(),
+                    abyss_dungeon=abyss[0],abyss_difficulty=abyss[1],raid_difficulty=raid[1])
+
     def content_changed(self,*_):
+        self._content_values[self._active_content]=(self.dungeon.get(),self.difficulty.get())
+        self._active_content=self.content.get()
+        raid=self._active_content=='레이드'
+        self.dungeon_box.dismiss();self.difficulty_box.dismiss()
+        self.mode_box.values=[PLAY_MODES[0]] if raid else PLAY_MODES
+        if raid:self.play_mode.set(PLAY_MODES[0])
+        self.dungeon_box.values=['카브락'] if raid else list(DUNGEONS)
+        self.difficulty_box.values=RAID_DIFFICULTIES if raid else DIFFICULTIES
+        destination,difficulty=self._content_values[self._active_content]
+        self.dungeon.set(destination);self.difficulty.set(difficulty)
+        self.destination_options.pack(fill='x',pady=(12,0))
+        if raid:
+            self.content_hint.configure(text='레이드 · 미완성 기능 · 배 출항·장면 넘기기·지정 음식 사용까지')
+            self.content_hint.pack(fill='x')
+        else:self.content_hint.pack_forget()
+        self.entry_hint.set('레이드 조건: 카브락 · 혼자하기 · 입문/어려움 · 지역 도착 후 출항' if raid else '입장 조건: 함께하기 · 선택한 난이도 · 우연한 만남 ON')
         if _:
-            self.settings['content']=self.content.get()
+            self.settings=self.collect_settings()
             try:self.settings_path.write_text(json.dumps(self.settings,ensure_ascii=False,indent=2),encoding='utf-8')
             except OSError as error:self.log('콘텐츠 선택 저장 실패: '+str(error))
-        if self.content.get()=='어비스':
-            self.content_hint.pack_forget()
-            self.destination_options.pack(fill='x',pady=(12,0))
-        else:
-            self.destination_options.pack_forget()
-            self.content_hint.pack(fill='x')
         self.play_mode_changed()
 
     def destination_changed(self,_=None):
+        if self.content.get()=='레이드':return
         self.difficulty.set({'허상의 정박지':'매우 어려움','광기의 동굴':'어려움','흩어진 물길':'입문'}[self.dungeon.get()])
         self.log('목적지 변경: '+self.dungeon.get()+' — 화면의 실제 던전 이름과 선택 조건을 다시 확인합니다.')
 
@@ -338,7 +362,7 @@ class App:
             if process_elevated() is True:
                 messagebox.showinfo('권한 확인','현재 앱은 이미 관리자 권한입니다.',parent=self.root);return
             self.stop()
-            self.settings={'dungeon':self.dungeon.get(),'difficulty':self.difficulty.get(),'repeat':self.repeat.get(),'food':self.food.get(),'play_mode':self.play_mode.get(),'content':self.content.get()}
+            self.settings=self.collect_settings()
             self.settings_path.write_text(json.dumps(self.settings,ensure_ascii=False,indent=2),encoding='utf-8')
             if relaunch_admin(sys.executable):
                 self.log('Windows 관리자 권한 재실행이 승인되어 현재 앱을 종료합니다.');self.close()
@@ -430,23 +454,31 @@ class App:
         for w in (self.window_box,self.content_box,self.dungeon_box,self.difficulty_box,self.mode_box):w.configure(state='disabled' if running else 'readonly')
         for w in (self.refresh_button,self.resize_button,self.start_button,self.food_check):w.configure(state='disabled' if running else 'normal')
         self.stop_button.configure(state='normal' if running else 'disabled')
-        if self.installing or self.content.get()=='레이드' or self.play_mode.get()==PLAY_MODES[1]:self.start_button.configure(state='disabled')
+        if self.installing or self.play_mode.get()==PLAY_MODES[1]:self.start_button.configure(state='disabled')
 
     def play_mode_changed(self,*_):
         party=self.play_mode.get()==PLAY_MODES[1]
         raid=self.content.get()=='레이드'
         self.repeat.set(not party)
         if hasattr(self,'mode_hint'):
-            self.mode_hint.set('레이드: 준비 중' if raid else '파티 플레이: 준비 중' if party else '솔로 플레이: 보상 화면에서 다시 하기 · 파티 플레이: 준비 중')
-            self.status.set('레이드 준비 중' if raid else '파티 플레이 준비 중' if party else '시작 대기')
-            self.start_button.configure(state='disabled' if raid or party or self.running or self.installing else 'normal')
+            self.mode_hint.set('레이드: 혼자하기 · 배 출항 · 장면 넘기기 · 입장 후 빵 아이콘 확인' if raid else '파티 플레이: 준비 중' if party else '솔로 플레이: 보상 화면에서 다시 하기 · 파티 플레이: 준비 중')
+            self.status.set('레이드 시작 대기' if raid else '파티 플레이 준비 중' if party else '시작 대기')
+            self.start_button.configure(state='disabled' if party or self.running or self.installing else 'normal')
 
     def start(self):
-        if self.content.get()=='레이드':
-            messagebox.showinfo('레이드','레이드는 준비 중입니다.',parent=self.root);return
+        if self.running or self.sizing_busy or self.installing or self.closing or self.raid_confirming:return
         if self.play_mode.get()==PLAY_MODES[1]:
             messagebox.showinfo('파티 플레이','파티 플레이는 준비 중입니다.',parent=self.root);return
-        if self.running or self.sizing_busy or self.installing or self.closing:return
+        if self.content.get()=='레이드':
+            self.raid_confirming=True
+            try:
+                accepted=messagebox.askyesno('레이드 실행 확인','현재 미완성인 기능입니다.\n사용하시겠습니까?',default=messagebox.NO,parent=self.root)
+            finally:self.raid_confirming=False
+            if accepted is not True:
+                self.stop_event.set();self.status.set('레이드 실행 취소')
+                self.log('레이드 실행 확인: 아니오 또는 창 닫기 → 실행하지 않음')
+                return
+            if self.closing or self.installing or self.sizing_busy:return
         try:
             self.refresh()
             hwnd=self.selected()
@@ -455,7 +487,7 @@ class App:
             if (w,h)!=(800,1000):raise WindowError(f'실제 화면이 {w}×{h}입니다. 먼저 게임 창 자동 맞추기를 누르세요.')
         except WindowError as e:
             self.show_operation_error('매크로 시작',e,locals().get('hwnd'));return
-        self.settings={'dungeon':self.dungeon.get(),'difficulty':self.difficulty.get(),'repeat':self.repeat.get(),'food':self.food.get(),'play_mode':self.play_mode.get(),'content':self.content.get()}
+        self.settings=self.collect_settings()
         self.settings_path.write_text(json.dumps(self.settings,ensure_ascii=False,indent=2),encoding='utf-8')
         self.running=True;self.stop_event.clear();self.lock_controls(True)
         self.status.set('게임 창을 클릭하세요')
@@ -469,8 +501,9 @@ class App:
 
     def run(self,hwnd,config):
         try:
-            detector=Vision(BASE/'assets.json')
-            controller=Controller(config['dungeon'],config['difficulty'],config['repeat'])
+            raid=config.get('content')=='레이드'
+            detector=RaidVision(BASE/'assets.json') if raid else Vision(BASE/'assets.json')
+            controller=RaidController(config['difficulty']) if raid else Controller(config['dungeon'],config['difficulty'],config['repeat'])
             last_screen,streak,food_streak='',0,0
             previous_observation=None
             list_center=ListCentering()
@@ -545,7 +578,7 @@ class App:
                             warned=True
                     else:unknown_since=None;warned=False
                     action=controller.step(observation,now) if streak>=2 else None
-                    status=(controller.state.value,controller.reason or ('감지: '+{'unknown':'화면 확인 중','field':'일반 화면','combat':'전투','detail':'입장 설정','matching':'우연한 만남 대기','loading':'로딩','cutscene':'보스 연출','reward':'보상','mission':'협동 미션','clear':'던전 클리어','menu':'메뉴','list':'어비스 목록'}.get(observation.screen,observation.screen)))
+                    status=(controller.state.value,controller.reason or ('감지: '+{'unknown':'화면 확인 중','field':'일반 화면','combat':'전투','detail':'입장 설정','matching':'우연한 만남 대기','loading':'로딩','cutscene':'보스 연출','reward':'보상','mission':'협동 미션','clear':'던전 클리어','menu':'메뉴','list':'어비스 목록','raid_menu':'레이드 메뉴','raid_list':'카브락 목록','raid_detail':'레이드 설정','raid_travel':'레이드 지역 이동','raid_boat':'배 탑승·퀘스트 출항','raid_cutscene':'출항 장면','raid_inside':'카브락 입장·음식 확인'}.get(observation.screen,observation.screen)))
                     if observation.screen=='field' and controller.state==State.IDLE:
                         status=(status[0],status[1]+' / '+observation.motion_note)
                         motion_mode=observation.motion_note.split('(')[0]

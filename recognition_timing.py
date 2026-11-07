@@ -1,7 +1,7 @@
 """Responsive menu polling; retain slower capture cadence during combat."""
 
 def poll_interval(screen):
-    return .07 if screen in ('menu','list') else .12 if screen=='detail' else .25
+    return .07 if screen in ('menu','list','raid_menu','raid_list') else .12 if screen in ('detail','raid_detail') else .25
 
 
 def click_settle(key):
@@ -10,7 +10,7 @@ def click_settle(key):
 
 def same_detection(previous,current):
     if previous is None or previous.screen!=current.screen:return False
-    if current.screen=='list':
+    if current.screen in ('list','raid_list'):
         a=previous.points.get('dungeon');b=current.points.get('dungeon')
         return a is not None and b is not None and max(abs(x-y) for x,y in zip(a,b))<=6
     return True

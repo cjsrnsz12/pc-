@@ -40,8 +40,9 @@ def exercise_style_controls(app,report_path):
     app.content_box.choose('레이드');root.update()
     import json
     assert json.loads(app.settings_path.read_text(encoding='utf-8'))['content']=='레이드'
-    assert app.content_hint.winfo_ismapped() and not app.destination_options.winfo_ismapped()
-    assert str(app.start_button['state'])=='disabled' and '레이드' in app.status.get()
+    assert app.content_hint.winfo_ismapped() and app.destination_options.winfo_ismapped()
+    assert str(app.start_button['state'])=='normal' and '레이드' in app.status.get()
+    assert app.dungeon_box.values==['카브락'] and app.difficulty_box.values==['입문','어려움']
     app.content_box.choose('어비스');root.update()
     assert app.destination_options.winfo_ismapped() and not app.content_hint.winfo_ismapped()
     assert app.dungeon.get()==saved_destination and app.difficulty.get()==saved_difficulty
