@@ -1,7 +1,7 @@
 {
-  "version": "1.0.14",
-  "title": "일반·콜라보 메뉴 위치 자동 탐색",
-  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.0.14",
-  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.0.14/AbyssHelper.exe",
-  "notes": "어비스 아이콘·글자를 넓게 탐색하고 주변 메뉴를 교차 확인, 실제 버튼 위치 클릭, 이벤트 배너 위치 변화 지원"
+  "version": "1.1.28",
+  "title": "어비스 파티 반복·공통 부활과 회복·레이드 복귀 반복",
+  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.1.28",
+  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.1.28/AbyssHelper.exe",
+  "notes": "어비스 파티 재입장, 글씨로 부활 인식, 저체력 F1 물약 사용, 레이드 처치 연출·주말 보상·배 복귀와 재출항"
 }

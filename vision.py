@@ -1,7 +1,7 @@
 """Local image matching, normalized to the 800 × 1000 game client."""
 import base64
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 import cv2
 import numpy as np
@@ -9,6 +9,8 @@ from engine import Observation
 from motion import Stillness
 from detail_templates import DETAIL_TEMPLATES
 from hud_templates import HUD_TEMPLATES
+from survival_templates import SURVIVAL_TEMPLATES
+from party_templates import PARTY_TEMPLATES
 
 DUNGEONS = {'허상의 정박지': 'harbor', '광기의 동굴': 'cave', '흩어진 물길': 'water'}
 DIFFICULTIES = ['입문', '어려움', '매우 어려움', '매우 어려움2']
@@ -31,6 +33,8 @@ class Vision:
         self.data = json.loads(asset_path.read_text(encoding='utf-8'))
         self.data.update(DETAIL_TEMPLATES)
         self.data.update(HUD_TEMPLATES)
+        self.data.update(SURVIVAL_TEMPLATES)
+        self.data.update(PARTY_TEMPLATES)
         # The food button sits beside the portrait, above the buff icon row.
         self.data['food']['roi'] = [65,45,250,180]
         for key in DUNGEONS.values():
@@ -43,10 +47,12 @@ class Vision:
         for name, item in self.data.items():
             png = cv2.imdecode(np.frombuffer(base64.b64decode(item['png']), np.uint8), cv2.IMREAD_GRAYSCALE)
             self.templates[name] = [cv2.resize(png, None, fx=s, fy=s) for s in item['scales']]
+            if name.startswith('s_'):
+                self.templates[name].append(cv2.GaussianBlur(png,(3,3),.5))
             if name.startswith('list_'):
                 # A normalized smaller client has slightly softer glyph edges.
                 self.templates[name].append(cv2.GaussianBlur(png,(3,3),.5))
-        self.result_templates={name:[cv2.resize(self.templates[name][0],None,fx=s,fy=s) for s in (.8,.85,.9,.95,1.05,1.1,1.15,1.2,1.25,1.3)] for name in ('clear','touch','retry','exit')}
+        self.result_templates={name:[cv2.resize(self.templates[name][0],None,fx=s,fy=s) for s in (.8,.85,.9,.95,1.05,1.1,1.15,1.2,1.25,1.3)] for name in ('clear','touch','retry','exit','party_other')}
         self.stillness = Stillness()
         self.cache = {}
         self.scores = {}
@@ -76,7 +82,7 @@ class Vision:
     def result_hit(self,name):
         original=self.hit(name)
         if original:return original
-        box={'clear':(100,100,700,370),'touch':(80,780,720,1000),'retry':(80,760,740,1000),'exit':(30,760,420,1000)}[name]
+        box={'clear':(100,100,700,370),'touch':(80,780,720,1000),'retry':(80,760,740,1000),'exit':(30,760,420,1000),'party_other':(430,760,780,1000)}[name]
         x,y,x2,y2=box;roi=self.gray[y:y2,x:x2];best=None
         for template in self.result_templates[name]:
             h,w=template.shape
@@ -89,8 +95,14 @@ class Vision:
     def result_screen(self):
         if self.result_hit('clear') and self.result_hit('touch'):return Observation('clear')
         if (retry:=self.result_hit('retry')) and self.result_hit('exit'):
-            return Observation('reward',{'retry':retry.center})
+            return self.reward_observation(retry,recover=True)
         return None
+
+    def reward_observation(self,retry,recover=False):
+        points={'retry':retry.center}
+        other=self.result_hit('party_other') if recover else self.hit('party_other')
+        if other:points['other']=other.center
+        return Observation('reward',points)
 
     def color_fraction(self, box, kind):
         x1, y1, x2, y2 = map(int, box)
@@ -166,6 +178,41 @@ class Vision:
         return matched>=4
 
     def observe(self, frame, dungeon, difficulty, after_clear=False):
+        return self.with_survival(self.observe_scene(frame,dungeon,difficulty,after_clear))
+
+    def with_survival(self, observed):
+        dead=self.hit('s_dead')
+        if dead:
+            button=self.hit('s_revive')
+            points={}
+            if button:
+                x,y,w,h=button.box
+                hsv=cv2.cvtColor(self.frame[y-3:y+h+4,x-4:x+w+4],cv2.COLOR_BGR2HSV)
+                hue,saturation,value=cv2.split(hsv)
+                if float(np.mean((hue>=5)&(hue<=30)&(saturation>110)&(value>100)))>.25:
+                    points['revive']=button.center
+            return Observation('dead',points)
+        if observed.screen not in ('combat','field','raid_inside','unknown'):return observed
+        if observed.screen=='unknown' and not self.hit('menu'):return observed
+        # Only the player's fixed top-left HP row, never overhead enemy/party bars.
+        hsv=cv2.cvtColor(self.frame[94:104,85:215],cv2.COLOR_BGR2HSV)
+        hue,saturation,value=cv2.split(hsv)
+        columns=np.mean((hue>=35)&(hue<=85)&(saturation>100)&(value>100),axis=0)>.3
+        indices=np.flatnonzero(columns)
+        low=bool(len(indices)>=2 and indices[0]<8 and indices[-1]<65)
+        points={k:v for k,v in observed.points.items() if k!='potion'}
+        if low and (label:=self.hit('s_f1')) and (potion:=self.hit('s_potion')):
+            x,y,w,h=potion.box
+            hsv=cv2.cvtColor(self.frame[y:y+h,x:x+w],cv2.COLOR_BGR2HSV)
+            hue,saturation,value=cv2.split(hsv)
+            ready=float(np.mean((hue<35)&(saturation>90)&(value>120)))>.20
+            if ready and abs(potion.center[0]-label.center[0])<40 and 0<potion.center[1]-label.center[1]<60:
+                points['potion']=potion.center
+        # A nearly empty HP row can fail the ordinary live-HUD area threshold.
+        # Menu + positive HP + F1 + ready potion still establish the action bar.
+        return replace(observed,points=points,screen='combat' if observed.screen=='unknown' and 'potion' in points else observed.screen)
+
+    def observe_scene(self, frame, dungeon, difficulty, after_clear=False):
         self.frame = cv2.resize(frame, (800, 1000))
         self.gray = cv2.cvtColor(self.frame, cv2.COLOR_BGR2GRAY)
         self.cache = {}
@@ -178,7 +225,7 @@ class Vision:
         if self.hit('clear') and self.hit('touch'):
             return Observation('clear')
         if (h := self.hit('retry')) and self.hit('exit'):
-            return Observation('reward', {'retry': h.center})
+            return self.reward_observation(h,recover=True)
         if after_clear:
             recovered=self.result_screen()
             if recovered is not None:return recovered

@@ -17,6 +17,7 @@ class State(str, Enum):
     REWARD = '보상 확인'
     WAIT = '보상 화면에서 대기'
     BLOCKED = '확인 필요'
+    DEAD = '행동 불능'
 
 
 @dataclass(frozen=True)
@@ -40,8 +41,9 @@ class Action:
 
 
 class Controller:
-    def __init__(self, dungeon='허상의 정박지', difficulty='매우 어려움', repeat=True):
+    def __init__(self, dungeon='허상의 정박지', difficulty='매우 어려움', repeat=True, party=False):
         self.dungeon, self.difficulty, self.repeat = dungeon, difficulty, repeat
+        self.party=party;self.party_stage=None
         self.state = State.SCAN
         self.reason = ''
         self.still_since = None
@@ -61,6 +63,9 @@ class Controller:
         self.popup_last = -999.0
         self.popup_attempts = 0
         self.last_screen = None
+        self.dead_since=None
+        self.revive_last=-999.;self.revive_attempts=0
+        self.potion_last=-999.;self.low_health_since=None
 
     def emit(self, key, point, message, now):
         if point is None or now < self.settle_until:
@@ -81,6 +86,8 @@ class Controller:
     def step(self, o: Observation, now: float):
         if self.state == State.BLOCKED:
             return None
+        action=self.survival_action(o,now)
+        if o.screen=='dead' or self.dead_since is not None or action is not None:return action
         # Cooperative mission is an overlay: never reset the underlying dungeon phase.
         if o.screen == 'mission':
             if self.popup_since is None:
@@ -112,6 +119,7 @@ class Controller:
             self.combat_latched=False;self.state=State.SCAN;self.entered_at=None
             self.clear_clicked=False;self.clear_seen_at=None
         if o.screen == 'reward':
+            self.reason='파티 보상 · 다른 던전 가기 확인' if self.party else '보상 · 다시 하기 확인'
             self.clear_seen_at=None;self.clear_clicked=False
             self.state = State.REWARD if self.repeat else State.WAIT
             self.combat_latched = False
@@ -119,12 +127,24 @@ class Controller:
                 self.reward_since = now
             if not self.repeat:
                 return None
-            a = self.emit('retry', o.points.get('retry'), '보상 → 다시 하기', now)
+            a = self.emit('other',o.points.get('other'),'파티 보상 → 다른 던전 가기',now) if self.party else self.emit('retry', o.points.get('retry'), '보상 → 다시 하기', now)
             if a:
-                self.state = State.ENTERING
+                self.party_stage='list' if self.party else None
+                self.state = State.LIST if self.party else State.ENTERING
                 self.entered_at = now
             return a
+        if self.party_stage in ('list','detail'):
+            if o.screen not in ('list','detail'):
+                self.state=State.LIST if self.party_stage=='list' else State.DETAIL
+                self.reason='파티 반복 · 선택한 던전 목록·입장 설정 확인 대기'
+                if self.entered_at is not None and now-self.entered_at>240:
+                    self.state,self.reason=State.BLOCKED,'파티 반복 던전 선택 대기가 4분을 넘었습니다.'
+                return None
+            self.combat_latched=False;self.clear_clicked=False;self.clear_seen_at=None
+        if self.party_stage=='entering' and o.screen in ('matching','loading','combat','field'):
+            self.repeats+=1;self.reward_since=None;self.party_stage=None
         if o.screen in ('matching', 'loading'):
+            self.reason='우연한 만남·던전 입장 화면 확인'
             self.clear_seen_at=None
             if self.state != State.ENTERING:
                 self.repeats += int(self.reward_since is not None)
@@ -157,6 +177,7 @@ class Controller:
                 self.skip_clicked = True
             return a
         if o.screen == 'combat':
+            self.reason='전투 화면 확인'
             if self.clear_clicked:
                 self.state=State.CLEAR
                 return None
@@ -185,6 +206,7 @@ class Controller:
             return None
         if o.screen == 'detail':
             self.state = State.DETAIL
+            self.reason='선택한 던전·함께하기·난이도·우연한 만남 확인'
             if o.dungeon != self.dungeon:
                 self.state, self.reason = State.BLOCKED, '선택한 던전과 화면 이름이 다르거나 인식되지 않습니다.'
                 return None
@@ -200,13 +222,17 @@ class Controller:
             if a:
                 self.state, self.entered_at = State.ENTERING, now
                 self.combat_latched = True
+                if self.party:self.party_stage='entering';self.skip_clicked=False
             return a
         if o.screen == 'list':
+            self.reason='어비스 목록에서 설정한 목적지 확인'
             if o.dungeon and o.dungeon != self.dungeon:
                 self.state,self.reason=State.BLOCKED,'목록의 던전 이름이 선택한 목적지와 다릅니다.'
                 return None
             self.state = State.LIST
-            return self.emit('dungeon', o.points.get('dungeon'), self.dungeon + ' 선택', now)
+            action=self.emit('dungeon', o.points.get('dungeon'), self.dungeon + ' 선택', now)
+            if action and self.party_stage=='list':self.party_stage='detail'
+            return action
         if o.screen == 'menu':
             self.state = State.LIST
             return self.emit('abyss', o.points.get('abyss'), '메뉴 → 어비스', now)
@@ -225,6 +251,32 @@ class Controller:
         else:
             self.still_since = None
         return None
+
+    def survival_action(self,o,now):
+        if o.screen=='dead':
+            if self.dead_since is None:self.dead_since=now
+            self.low_health_since=None;self.state=State.DEAD
+            self.reason='행동 불능 · 주황색 여기서 부활 글씨 확인 중'
+            if not o.points.get('revive') or now-self.revive_last<2.5:return None
+            if self.revive_attempts>=3:
+                self.state,self.reason=State.BLOCKED,'여기서 부활이 반응하지 않습니다. 부활 가능 횟수와 화면을 확인하세요.'
+                return None
+            self.revive_attempts+=1;self.revive_last=now;self.settle_until=now+.65
+            return Action('revive',o.points['revive'],'행동 불능·주황색 여기서 부활 글씨 확인 → 부활')
+        if self.dead_since is not None:
+            if o.screen=='unknown':return None
+            elapsed=now-self.dead_since
+            if self.entered_at is not None:self.entered_at+=elapsed
+            if self.clear_seen_at is not None:self.clear_seen_at+=elapsed
+            self.dead_since=None;self.revive_attempts=0;self.revive_last=-999.
+            self.state=State.SCAN;self.reason='부활 화면 닫힘 · 현재 화면 재확인'
+        if o.screen not in ('combat','field','raid_inside') or not o.points.get('potion'):
+            self.low_health_since=None
+            return None
+        if self.low_health_since is None:self.low_health_since=now
+        if now-self.low_health_since<.15 or now-self.potion_last<10 or now<self.settle_until:return None
+        self.potion_last=now;self.settle_until=now+.65
+        return Action('potion',o.points['potion'],'체력 감소·F1 회복물약 확인 → 한 번 사용 (재사용 간격 10초)')
 
     def food_action(self, o, now):
         if not o.food:

@@ -187,3 +187,158 @@ def test_depart_has_priority_over_stale_move_detection():
     o=RaidObservation('raid_detail',{'depart':(400,950),'move':(490,950)},dungeon='카브락',difficulty='입문',solo=True)
     assert c.step(o,0).key=='raid_depart'
     assert c.phase=='launching'
+
+
+@pytest.mark.parametrize('size',[(800,1000),(784,980),(640,800)])
+def test_actual_boss_defeat_skip_after_intro_is_independent_and_once(size):
+    v=RaidVision(ROOT/'assets.json');c=RaidController()
+    intro=v.observe(frame('intro'))
+    assert c.step(intro,0).key=='raid_intro_skip' and c.intro_skipped
+    inside=v.observe(frame('inside'))
+    assert c.step(inside,1).key=='food'
+    ending=v.observe(cv2.resize(frame('defeat'),size))
+    assert ending.screen=='raid_cutscene' and 670<=ending.points['skip'][0]<=780
+    action=c.step(ending,2)
+    assert action.key=='raid_defeat_skip' and action.point==ending.points['skip']
+    assert c.defeat_skipped and c.phase=='aftermath' and c.state==State.CLEAR
+    for now in (3,10,30):assert c.step(ending,now) is None
+    assert c.step(Observation('field',{'menu':(770,60)},still=True),31) is None
+    assert c.step(inside,32) is None  # Never re-enter battle/menu automation after the ending.
+
+
+def test_defeat_skip_requires_visible_button_not_just_elapsed_combat_time():
+    v=RaidVision(ROOT/'assets.json');c=RaidController()
+    c.step(v.observe(frame('inside')),0)
+    blank=frame('defeat');blank[25:110,620:795]=255
+    o=v.observe(blank)
+    assert o.screen!='raid_cutscene' and c.step(o,60) is None
+    assert not c.defeat_skipped and c.phase=='inside'
+
+
+def test_starting_in_raid_can_skip_defeat_even_without_observing_intro():
+    v=RaidVision(ROOT/'assets.json');c=RaidController()
+    c.step(v.observe(frame('inside')),0)
+    assert not c.intro_skipped
+    assert c.step(v.observe(frame('defeat')),1).key=='raid_defeat_skip'
+
+
+@pytest.mark.parametrize('size',[(800,1000),(784,980),(640,800)])
+def test_weekend_popup_matches_title_reward_and_green_confirmation(size):
+    v=RaidVision(ROOT/'assets.json');o=v.observe(cv2.resize(frame('weekend'),size))
+    assert o.screen=='raid_weekend' and 380<=o.points['confirm'][0]<=425
+    c=RaidController();action=c.step(o,0)
+    assert action.key=='raid_weekend_confirm' and action.point==o.points['confirm']
+
+
+@pytest.mark.parametrize('missing',['title','reward','green'])
+def test_weekend_popup_never_confirms_with_partial_evidence(missing):
+    v=RaidVision(ROOT/'assets.json');f=frame('weekend')
+    if missing=='title':f[145:335,200:610]=0
+    elif missing=='reward':f[420:720,250:560]=0
+    else:f[915:985,170:630]=cv2.cvtColor(cv2.cvtColor(f[915:985,170:630],cv2.COLOR_BGR2GRAY),cv2.COLOR_GRAY2BGR)
+    o=v.observe(f)
+    assert o.screen!='raid_weekend'
+    action=RaidController().step(o,0)
+    assert action is None or action.key!='raid_weekend_confirm'
+
+
+def test_weekend_popup_after_defeat_reclassifies_actual_combat_after_close():
+    v=RaidVision(ROOT/'assets.json');c=RaidController()
+    c.step(v.observe(frame('inside')),0)
+    assert c.step(v.observe(frame('defeat')),1).key=='raid_defeat_skip'
+    popup=v.observe(frame('weekend'))
+    assert c.step(popup,2).key=='raid_weekend_confirm'
+    assert c.phase=='aftermath'
+    assert c.step(Observation(),3) is None and c.weekend_resync
+    assert c.step(Observation(),3.2) is None and c.state==State.SCAN
+    assert c.step(v.observe(frame('inside')),4) is None
+    assert c.state==State.COMBAT and c.phase=='inside' and not c.weekend_resync
+    assert c.step(v.observe(frame('inside')),5) is None  # Existing food icon cannot be consumed twice.
+
+
+def test_popup_close_can_report_results_or_combat_without_unrelated_clicks():
+    for observed,state in [(Observation('combat'),State.COMBAT),(Observation('clear'),State.CLEAR),(Observation('reward',{'retry':(400,950)}),State.REWARD),(Observation('field',{'menu':(770,60)},still=True),State.IDLE)]:
+        c=RaidController();c.phase='aftermath'
+        assert c.step(Observation('raid_weekend',{'confirm':(400,950)}),0).key=='raid_weekend_confirm'
+        assert c.step(observed,1) is None
+        assert c.step(observed,1.2) is None and c.state==state
+        assert c.step(observed,3) is None and c.state==state
+
+
+def test_weekend_overlay_preserves_travel_timeout_and_bounds_click_retries():
+    c=RaidController();c.phase='travel';c.entered_at=0
+    popup=Observation('raid_weekend',{'confirm':(400,950)})
+    assert c.step(popup,2).key=='raid_weekend_confirm'
+    assert c.step(popup,3) is None
+    assert c.step(Observation(),35) is None and c.entered_at==33
+    assert c.step(Observation('raid_travel',{'wing':(585,872)}),36) is None
+    # Unknown/unsupported closing frame cannot trigger unrelated navigation.
+    assert c.state==State.SCAN
+    d=RaidController()
+    assert d.step(popup,0).key=='raid_weekend_confirm'
+    assert d.step(popup,2.5).key=='raid_weekend_confirm'
+    assert d.step(popup,5).key=='raid_weekend_confirm'
+    assert d.step(popup,7.5) is None and d.state==State.BLOCKED
+
+
+def test_brief_popup_detection_gap_cannot_cause_rapid_reconfirm():
+    c=RaidController();popup=Observation('raid_weekend',{'confirm':(400,950)})
+    assert c.step(popup,0).key=='raid_weekend_confirm'
+    assert c.step(Observation(),1) is None
+    assert c.step(popup,1.2) is None
+    assert c.step(popup,2.5).key=='raid_weekend_confirm'
+
+
+@pytest.mark.parametrize('size',[(800,1000),(784,980),(640,800)])
+def test_return_quest_and_moving_highlight_recognition(size):
+    v=RaidVision(ROOT/'assets.json')
+    for name,active in [('return',False),('return_active',True)]:
+        o=v.observe(cv2.resize(frame(name),size))
+        assert o.screen=='raid_return' and o.return_active==active
+        assert 650<=o.points['return'][0]<=785
+    assert v.observe(cv2.resize(frame('returned_boat'),size)).screen=='raid_boat'
+
+
+@pytest.mark.parametrize('missing',['title','hint'])
+def test_return_requires_completed_kabrak_title_and_ship_instruction(missing):
+    f=frame('return')
+    if missing=='title':f[266:290,645:790]=0
+    else:f[292:325,695:790]=0
+    assert RaidVision(ROOT/'assets.json').observe(f).screen!='raid_return'
+
+
+def test_two_complete_raid_loops_rearm_departure_and_both_cutscenes():
+    c=RaidController();v=RaidVision(ROOT/'assets.json')
+    observe=lambda name:v.observe(frame(name))
+    for start in (0,40):
+        c.step(observe('inside'),start)
+        assert c.step(observe('defeat'),start+1).key=='raid_defeat_skip'
+        assert c.step(Observation('reward'),start+2) is None
+        o=observe('return');a=c.step(o,start+3)
+        assert a.key=='raid_return' and a.point==o.points['return']
+        for t,n in [(4,'return'),(8,'return_active')]:assert c.step(observe(n),start+t) is None
+        assert c.step(Observation('field',{'menu':(770,60)},still=True),start+9) is None
+        assert c.phase=='returning'
+        assert c.step(observe('returned_boat'),start+10).key=='raid_boat_depart'
+        assert c.step(observe('returned_boat'),start+11) is None
+        assert c.step(observe('intro'),start+12).key=='raid_intro_skip'
+        assert c.step(observe('intro'),start+13) is None
+        c.step(observe('inside'),start+14)
+    assert c.repeats==2 and c.phase=='inside'
+
+
+def test_already_moving_return_quest_waits_without_clicking_and_times_out():
+    c=RaidController();v=RaidVision(ROOT/'assets.json')
+    assert c.step(v.observe(frame('return_active')),0) is None
+    assert c.return_requested and c.phase=='returning'
+    assert c.step(v.observe(frame('return')),241) is None and c.state==State.BLOCKED
+
+
+def test_weekend_popup_during_return_keeps_latch_until_boat():
+    c=RaidController();v=RaidVision(ROOT/'assets.json')
+    assert c.step(v.observe(frame('return')),0).key=='raid_return'
+    assert c.step(v.observe(frame('weekend')),1).key=='raid_weekend_confirm'
+    assert c.step(Observation('loading'),2) is None
+    assert c.step(Observation('loading'),3) is None and c.phase=='returning'
+    assert c.step(v.observe(frame('return')),4) is None
+    assert c.step(v.observe(frame('returned_boat')),5).key=='raid_boat_depart'

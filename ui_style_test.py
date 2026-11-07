@@ -53,7 +53,8 @@ def exercise_style_controls(app,report_path):
     app.dungeon.set(saved_destination);app.difficulty.set(saved_difficulty)
 
     app.play_mode.set(PLAY_MODES[1]);root.update()
-    assert '준비 중' in app.mode_hint.get() and str(app.start_button['state'])=='disabled'
+    assert '다른 던전 가기' in app.mode_hint.get() and str(app.start_button['state'])=='normal'
+    assert app.repeat.get()
     app.play_mode.set(PLAY_MODES[0]);root.update()
     assert str(app.start_button['state'])=='normal'
     for title,color in DIFFICULTY_COLORS.items():

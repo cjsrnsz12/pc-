@@ -199,10 +199,10 @@ class App:
         self.play_mode=tk.StringVar(value=self.settings.get('play_mode',PLAY_MODES[0]))
         if self.play_mode.get() not in PLAY_MODES:self.play_mode.set(PLAY_MODES[0])
         self.play_mode.trace_add('write',self.play_mode_changed)
-        self.repeat.set(self.play_mode.get()==PLAY_MODES[0])
+        self.repeat.set(True)
         ttk.Label(page,text='플레이 모드').pack(anchor='w',pady=(6,4))
         self.mode_box=SmoothChoice(page,textvariable=self.play_mode,values=PLAY_MODES);self.mode_box.pack(fill='x',pady=(0,4))
-        self.mode_hint=tk.StringVar(value='솔로 플레이: 보상 화면에서 다시 하기 · 파티 플레이: 준비 중')
+        self.mode_hint=tk.StringVar(value='솔로: 다시 하기 · 파티: 다른 던전 가기 → 목적지 선택 → 입장하기')
         ttk.Label(page,textvariable=self.mode_hint,style='Muted.TLabel').pack(anchor='w')
         self.entry_hint=tk.StringVar(value='입장 조건: 함께하기 · 선택한 난이도 · 우연한 만남 ON')
         self.food_check=SmoothCheckbutton(page,text='음식 아이콘이 나타나면 한 번 클릭',variable=self.food);self.food_check.pack(anchor='w')
@@ -274,7 +274,7 @@ class App:
         self.dungeon.set(destination);self.difficulty.set(difficulty)
         self.destination_options.pack(fill='x',pady=(12,0))
         if raid:
-            self.content_hint.configure(text='레이드 · 미완성 기능 · 배 출항·장면 넘기기·지정 음식 사용까지')
+            self.content_hint.configure(text='레이드 · 미완성 기능 · 보상 확인·배 복귀·재출항 반복')
             self.content_hint.pack(fill='x')
         else:self.content_hint.pack_forget()
         self.entry_hint.set('레이드 조건: 카브락 · 혼자하기 · 입문/어려움 · 지역 도착 후 출항' if raid else '입장 조건: 함께하기 · 선택한 난이도 · 우연한 만남 ON')
@@ -456,21 +456,19 @@ class App:
         for w in (self.window_box,self.content_box,self.dungeon_box,self.difficulty_box,self.mode_box):w.configure(state='disabled' if running else 'readonly')
         for w in (self.refresh_button,self.resize_button,self.start_button,self.food_check):w.configure(state='disabled' if running else 'normal')
         self.stop_button.configure(state='normal' if running else 'disabled')
-        if self.installing or self.play_mode.get()==PLAY_MODES[1]:self.start_button.configure(state='disabled')
+        if self.installing:self.start_button.configure(state='disabled')
 
     def play_mode_changed(self,*_):
         party=self.play_mode.get()==PLAY_MODES[1]
         raid=self.content.get()=='레이드'
-        self.repeat.set(not party)
+        self.repeat.set(True)
         if hasattr(self,'mode_hint'):
-            self.mode_hint.set('레이드: 혼자하기 · 배 출항 · 장면 넘기기 · 입장 후 빵 아이콘 확인' if raid else '파티 플레이: 준비 중' if party else '솔로 플레이: 보상 화면에서 다시 하기 · 파티 플레이: 준비 중')
-            self.status.set('레이드 시작 대기' if raid else '파티 플레이 준비 중' if party else '시작 대기')
-            self.start_button.configure(state='disabled' if party or self.running or self.installing else 'normal')
+            self.mode_hint.set('레이드: 혼자하기 · 배 출항 · 장면 넘기기 · 빵 아이콘 확인 · 토벌 후 배 복귀·재출항' if raid else '파티: 다른 던전 가기 → 목적지 선택 → 입장하기' if party else '솔로: 다시 하기 · 파티: 다른 던전 가기 → 목적지 선택 → 입장하기')
+            self.status.set('레이드 시작 대기' if raid else '파티 플레이 시작 대기' if party else '시작 대기')
+            self.start_button.configure(state='disabled' if self.running or self.installing else 'normal')
 
     def start(self):
         if self.running or self.sizing_busy or self.installing or self.closing or self.raid_confirming:return
-        if self.play_mode.get()==PLAY_MODES[1]:
-            messagebox.showinfo('파티 플레이','파티 플레이는 준비 중입니다.',parent=self.root);return
         if self.content.get()=='레이드':
             self.raid_confirming=True
             try:
@@ -505,7 +503,7 @@ class App:
         try:
             raid=config.get('content')=='레이드'
             detector=RaidVision(BASE/'assets.json') if raid else Vision(BASE/'assets.json')
-            controller=RaidController(config['difficulty']) if raid else Controller(config['dungeon'],config['difficulty'],config['repeat'])
+            controller=RaidController(config['difficulty']) if raid else Controller(config['dungeon'],config['difficulty'],config['repeat'],party=config.get('play_mode')==PLAY_MODES[1])
             last_screen,streak,food_streak='',0,0
             previous_observation=None
             list_center=ListCentering()
@@ -581,7 +579,7 @@ class App:
                             warned=True
                     else:unknown_since=None;warned=False
                     action=controller.step(observation,now) if streak>=2 else None
-                    status=(controller.state.value,controller.reason or ('감지: '+{'unknown':'화면 확인 중','field':'일반 화면','combat':'전투','detail':'입장 설정','matching':'우연한 만남 대기','loading':'로딩','cutscene':'보스 연출','reward':'보상','mission':'협동 미션','clear':'던전 클리어','menu':'메뉴','list':'어비스 목록','raid_menu':'레이드 메뉴','raid_list':'카브락 목록','raid_detail':'레이드 설정','raid_travel':'레이드 지역 이동','raid_boat':'배 탑승·퀘스트 출항','raid_cutscene':'출항 장면','raid_inside':'카브락 입장·음식 확인'}.get(observation.screen,observation.screen)))
+                    status=(controller.state.value,controller.reason or ('감지: '+{'unknown':'화면 확인 중','dead':'행동 불능·여기서 부활 확인','field':'일반 화면','combat':'전투','detail':'입장 설정','matching':'우연한 만남 대기','loading':'로딩','cutscene':'보스 연출','reward':'보상','mission':'협동 미션','clear':'던전 클리어','menu':'메뉴','list':'어비스 목록','raid_menu':'레이드 메뉴','raid_list':'카브락 목록','raid_detail':'레이드 설정','raid_travel':'레이드 지역 이동','raid_boat':'배 탑승·퀘스트 출항','raid_cutscene':'출항 장면','raid_inside':'카브락 입장·음식 확인','raid_weekend':'주말 레이드 퀘스트 보상','raid_return':'카브락 토벌 완료·배 복귀'}.get(observation.screen,observation.screen)))
                     if observation.screen=='field' and controller.state==State.IDLE:
                         status=(status[0],status[1]+' / '+observation.motion_note)
                         motion_mode=observation.motion_note.split('(')[0]

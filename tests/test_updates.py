@@ -10,12 +10,12 @@ def test_semantic_version_order():
 
 def test_update_only_when_binary_is_published():
     d={'tag_name':'v1.1.0','html_url':'https://github.com/cjsrnsz12/pc-/releases/tag/v1.1.0','body':'수정','assets':[]}
-    assert parse_release(d) is None
+    assert parse_release(d,current='1.0.0') is None
     d['assets']=[{'name':'AbyssHelper.exe'}]
-    assert parse_release(d)['version']=='v1.1.0'
+    assert parse_release(d,current='1.0.0')['version']=='v1.1.0'
     assert parse_release(d,current='1.2.0') is None
     d['prerelease']=True
-    assert parse_release(d) is None
+    assert parse_release(d,current='1.0.0') is None
 
 
 def test_urls_are_restricted_to_this_repository():

@@ -62,3 +62,12 @@ def test_nested_start_cannot_open_duplicate_confirmation(start_case,monkeypatch)
     monkeypatch.setattr(module.messagebox,'askyesno',answer)
     module.App.start(case)
     assert asked==[1] and not case.running and not case.raid_confirming
+
+
+def test_abyss_party_mode_can_start_without_unfinished_raid_prompt(start_case,monkeypatch):
+    module,case,calls=start_case;case.content.set('어비스');case.play_mode.set(module.PLAY_MODES[1])
+    def unexpected(*args,**kw):raise AssertionError('Unexpected prompt for Abyss party')
+    monkeypatch.setattr(module.messagebox,'askyesno',unexpected)
+    monkeypatch.setattr(module.messagebox,'showinfo',unexpected)
+    module.App.start(case)
+    assert case.running and 'worker_started' in calls
