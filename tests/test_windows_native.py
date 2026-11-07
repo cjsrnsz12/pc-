@@ -17,6 +17,7 @@ def native_root():
 
 def test_native_resize_restores_and_sizes_client(monkeypatch,native_root):
     from windows import Windows, WindowError, dpi_aware
+    from window_sizing import supported_client
     import tkinter as tk
     dpi_aware()
     root=tk.Toplevel(native_root)
@@ -32,21 +33,17 @@ def test_native_resize_restores_and_sizes_client(monkeypatch,native_root):
         original=win.ensure_game
         monkeypatch.setattr(win,'ensure_game',lambda handle:None if handle==hwnd else original(handle))
         _,work=win.monitor_info(hwnd)
-        if work[2]-work[0]<800 or work[3]-work[1]<1000:
-            with pytest.raises(WindowError,match='작업 영역'):
-                win.resize(hwnd)
-            return
         for mode in [1,2,3]: # normal, minimized, maximized
             win.u.ShowWindow(hwnd,mode)
             root.update()
-            try:win.resize(hwnd)
+            try:expected=win.resize(hwnd)
             except WindowError as error:
                 assert '제목 표시줄' in str(error) and '작업 영역' in str(error)
                 return
             root.update()
-            if win.rect(hwnd)[2:]!=(800,1000):
-                win.resize(hwnd,correction=True);root.update()
-            assert win.rect(hwnd)[2:]==(800,1000)
+            if win.rect(hwnd)[2:]!=expected:
+                expected=win.resize(hwnd,correction=True);root.update()
+            assert win.rect(hwnd)[2:]==expected and supported_client(expected)
             assert win.u.GetWindowLongW(hwnd,-16)&0x00C00000
     finally:
         root.destroy()
@@ -144,3 +141,32 @@ def test_desktop_bounds_read_current_physical_virtual_screen():
     assert left==win.u.GetSystemMetrics(76) and top==win.u.GetSystemMetrics(77)
     assert right-left==win.u.GetSystemMetrics(78)>0
     assert bottom-top==win.u.GetSystemMetrics(79)>0
+
+
+@pytest.mark.parametrize('size',[(784,980),(640,800)])
+def test_scaled_reference_click_reaches_its_physical_point(monkeypatch,native_root,size):
+    import tkinter as tk
+    import threading,time,ctypes as C
+    from ctypes import wintypes as W
+    from windows import Windows
+    from window_sizing import client_point
+    root=tk.Toplevel(native_root);root.geometry('500x400+0+0');hits=[];errors=[]
+    px,py=client_point((400,350),size)
+    button=tk.Button(root,text='Scaled',command=lambda:hits.append(1));button.place(x=px-30,y=py-20,width=60,height=40)
+    root.update();win=Windows();hwnd=win.u.GetAncestor(root.winfo_id(),2)
+    left,top,_,_=win.rect(hwnd)
+    monkeypatch.setattr(win,'ensure_game',lambda handle:None)
+    monkeypatch.setattr(win,'require_control_permission',lambda handle:None)
+    monkeypatch.setattr(win,'rect',lambda handle:(left,top,*size))
+    try:
+        win.u.SetForegroundWindow(hwnd);root.focus_force();root.update()
+        def click():
+            try:win.click(hwnd,(400,350))
+            except Exception as error:errors.append(error)
+        worker=threading.Thread(target=click);worker.start();deadline=time.monotonic()+5
+        while worker.is_alive() and time.monotonic()<deadline:root.update();time.sleep(.005)
+        worker.join(timeout=1);root.update()
+        assert not errors and hits==[1]
+        win.u.GetCursorPos.argtypes=[C.POINTER(W.POINT)];point=W.POINT();win.u.GetCursorPos(C.byref(point))
+        assert abs(point.x-(left+px))<=1 and abs(point.y-(top+py))<=1
+    finally:root.destroy()

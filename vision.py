@@ -43,6 +43,9 @@ class Vision:
         for name, item in self.data.items():
             png = cv2.imdecode(np.frombuffer(base64.b64decode(item['png']), np.uint8), cv2.IMREAD_GRAYSCALE)
             self.templates[name] = [cv2.resize(png, None, fx=s, fy=s) for s in item['scales']]
+            if name.startswith('list_'):
+                # A normalized smaller client has slightly softer glyph edges.
+                self.templates[name].append(cv2.GaussianBlur(png,(3,3),.5))
         self.result_templates={name:[cv2.resize(self.templates[name][0],None,fx=s,fy=s) for s in (.8,.85,.9,.95,1.05,1.1,1.15,1.2,1.25,1.3)] for name in ('clear','touch','retry','exit')}
         self.stillness = Stillness()
         self.cache = {}

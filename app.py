@@ -37,6 +37,7 @@ from raid import RaidController,RaidVision,RAID_DIFFICULTIES
 from recognition_timing import poll_interval, same_detection
 from list_centering import ListCentering
 from capture_guard import CapturePause, within_desktop
+from window_sizing import supported_client
 from failure_diagnostics import save_failure,create_bundle,LOG_FILENAME
 from startup_notes import needs_notice, installed_release, mark_shown
 from vision import Vision, DUNGEONS, DIFFICULTIES
@@ -76,6 +77,7 @@ class App:
         self.running = False
         self.raid_confirming = False
         self.sizing_busy = False
+        self.resize_target=(800,1000)
         self.closing = False
         self.update_busy = False
         self.seen_updates = set()
@@ -420,8 +422,8 @@ class App:
             if info['fullscreen_like'] or (int(info['style'],16)&0x00C00000)!=0x00C00000:
                 self.win.make_windowed(hwnd)
                 self.log('테두리 없는 창/고정 창의 스타일을 보정했습니다.')
-            self.win.resize(hwnd)
-            self.detail.set('800×1000 적용 후 실제 화면 크기 확인 중…')
+            self.resize_target=self.win.resize(hwnd)
+            self.detail.set(f'{self.resize_target[0]}×{self.resize_target[1]} 적용 후 실제 화면 크기 확인 중…')
             self.root.after(600,lambda:self.verify_size(hwnd))
         except WindowError as e:self.sizing_error(hwnd,e)
 
@@ -433,21 +435,21 @@ class App:
             self.log(f'창 맞춤 검증 {attempt+1}: 실제 게임 영역 {w}×{h}')
             if (int(self.win.diagnostics(hwnd)['style'],16)&0x00C00000)!=0x00C00000:
                 raise WindowError('게임이 제목 표시줄을 다시 숨겼습니다. 제목 표시줄을 유지할 수 있는 화면 모드인지 확인하세요.')
-            if (w,h)!=(800,1000):
+            if (w,h)!=self.resize_target:
                 if attempt<3:
-                    self.win.resize(hwnd,correction=True)
+                    self.resize_target=self.win.resize(hwnd,correction=True)
                     self.root.after(650,lambda:self.verify_size(hwnd,attempt+1));return
                 raise WindowError(f'실제 화면이 {w}×{h}로 유지됩니다. 게임이 전체 화면/고정 해상도로 되돌리거나 크기 변경을 제한하고 있습니다. 자동 전환이 지원되지 않으면 게임 설정에서 디스플레이 모드를 변경해야 합니다.')
             _,work=self.win.monitor_info(hwnd)
             if left<work[0] or top<work[1] or left+w>work[2] or top+h>work[3]:
                 if attempt<3:
-                    self.win.resize(hwnd,correction=True)
+                    self.resize_target=self.win.resize(hwnd,correction=True)
                     self.root.after(650,lambda:self.verify_size(hwnd,attempt+1));return
                 raise WindowError('제목 표시줄은 유지했지만 게임 화면 일부가 작업 표시줄이나 화면 경계에 가려집니다. 화면 해상도 또는 작업 표시줄 자동 숨김 설정을 확인하세요.')
             self.refresh();self.sizing_finished()
-            self.log('자동 창 맞추기 완료: 제목 표시줄 유지 + 실제 게임 화면 800×1000 확인.')
+            self.log(f'자동 창 맞추기 완료: 제목 표시줄 유지 + 실제 게임 화면 {w}×{h} / 인식 기준 800×1000.')
             self.log('창 맞춤 결과: '+json.dumps(self.win.diagnostics(hwnd),ensure_ascii=False))
-            self.detail.set('게임 화면 800 × 1000 확인 완료')
+            self.detail.set(f'게임 화면 {w} × {h} · 인식/클릭 좌표 자동 변환')
         except WindowError as e:self.sizing_error(hwnd,e)
 
     def lock_controls(self,running):
@@ -484,7 +486,7 @@ class App:
             hwnd=self.selected()
             self.win.require_control_permission(hwnd)
             _,_,w,h=self.win.rect(hwnd)
-            if (w,h)!=(800,1000):raise WindowError(f'실제 화면이 {w}×{h}입니다. 먼저 게임 창 자동 맞추기를 누르세요.')
+            if not supported_client((w,h)):raise WindowError(f'실제 화면이 {w}×{h}입니다. 먼저 게임 창 자동 맞추기를 누르세요.')
         except WindowError as e:
             self.show_operation_error('매크로 시작',e,locals().get('hwnd'));return
         self.settings=self.collect_settings()
@@ -521,7 +523,7 @@ class App:
                         self.stop_event.wait(.25);continue
                     self.win.ensure_game(hwnd)
                     left,top,width,height=self.win.rect(hwnd)
-                    if (width,height)!=(800,1000):raise WindowError('화면 크기가 바뀌어 중지했습니다. 800×1000으로 다시 맞추세요.')
+                    if not supported_client((width,height)):raise WindowError('게임 화면 비율이 바뀌었습니다. 자동 맞추기를 다시 누르세요.')
                     bounds=self.win.desktop_bounds()
                     if not within_desktop((left,top,width,height),bounds):
                         if pause.hold('offscreen',now):
@@ -536,6 +538,7 @@ class App:
                         unknown_since=None;warned=False;food_streak=0
                         self.events.put(('log','게임 창 확인 완료 → 현재 화면을 새로 확인해 진행을 이어갑니다.'))
                     frame=np.array(capture.grab({'left':left,'top':top,'width':width,'height':height}))[:,:,:3]
+                    frame=cv2.resize(frame,(800,1000))
                     observation=detector.observe(frame,config['dungeon'],config['difficulty'],after_clear=controller.clear_clicked)
                     center_due=list_center.observe(observation.screen)
                     if center_due and (not controller.combat_latched or controller.clear_clicked):
@@ -601,10 +604,10 @@ class App:
             try:
                 if self.win.active(hwnd):
                     x,y,w,h=self.win.rect(hwnd)
-                    if (w,h)==(800,1000) and within_desktop((x,y,w,h),self.win.desktop_bounds()):
+                    if supported_client((w,h)) and within_desktop((x,y,w,h),self.win.desktop_bounds()):
                         with mss.mss() as failed_capture:
                             failed_frame=np.array(failed_capture.grab({'left':x,'top':y,'width':w,'height':h}))[:,:,:3]
-                        if self.win.active(hwnd):self.save_problem(failed_frame,{'version':VERSION,'reason':str(e),'window':self.win.diagnostics(hwnd)})
+                        if self.win.active(hwnd):self.save_problem(cv2.resize(failed_frame,(800,1000)),{'version':VERSION,'reason':str(e),'window':self.win.diagnostics(hwnd)})
             except Exception:LOG.exception('오류 진단 저장 실패')
             self.events.put(('error',(e,hwnd)))
         finally:self.events.put(('stopped',None))

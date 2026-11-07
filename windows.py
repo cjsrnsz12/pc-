@@ -3,7 +3,7 @@ import sys
 import ctypes as C
 from ctypes import wintypes as W
 from game_identity import is_game_window
-from window_sizing import covers_monitor, fit_framed_position
+from window_sizing import covers_monitor, fit_framed_position, fitted_client, supported_client, client_point
 from privileges import process_elevated
 from mouse_sequence import deliver_click
 from list_centering import smooth_move,LIST_PARK_POINT
@@ -224,21 +224,22 @@ class Windows:
             adjusted=bool(self.u.AdjustWindowRectEx(C.byref(rect),style,has_menu,exstyle))
         if not adjusted:
             raise WindowError('DPI와 테두리 크기 계산에 실패했습니다.')
-        width,height=rect.right-rect.left,rect.bottom-rect.top
         outer=W.RECT();self.u.GetWindowRect(hwnd,C.byref(outer))
-        if correction:
-            _,_,cw,ch=self.rect(hwnd)
-            width,height=outer.right-outer.left+800-cw,outer.bottom-outer.top+1000-ch
         monitor,work=self.monitor_info(hwnd)
         insets=(-rect.left,-rect.top,rect.right-800,rect.bottom-1000)
         if correction:
             cx,cy,cw,ch=self.rect(hwnd)
             insets=(cx-outer.left,cy-outer.top,outer.right-cx-cw,outer.bottom-cy-ch)
-        try:x,y=fit_framed_position((outer.left,outer.top),(width,height),work,monitor,insets)
+        try:
+            target=fitted_client(work,monitor,insets)
+            width=target[0]+insets[0]+insets[2];height=target[1]+insets[1]+insets[3]
+            x,y=fit_framed_position((outer.left,outer.top),(width,height),work,monitor,insets,client=target)
         except ValueError as e:raise WindowError(str(e)) from e
         if not self.u.SetWindowPos(hwnd,None,x,y,width,height,0x0004|0x0010):
             error=C.get_last_error()
             raise WindowError(f'창 크기 적용 실패 (Windows 오류 {error}). 게임이 크기 변경을 제한하거나 실행 권한이 다를 수 있습니다.',winerror=error)
+
+        return target
 
     def active(self, hwnd):
         current = self.u.GetForegroundWindow()
@@ -252,7 +253,7 @@ class Windows:
         self.require_control_permission(hwnd)
         rect=self.rect(hwnd)
         left,top,width,height=rect
-        if (width,height)!=(800,1000):raise WindowError('게임 화면 크기가 변경되어 중앙 이동을 중단했습니다.')
+        if not supported_client((width,height)):raise WindowError('게임 화면 비율이 변경되어 이동을 중단했습니다. 자동 맞추기를 사용하세요.')
         point=W.POINT()
         self.u.GetCursorPos.argtypes=[C.POINTER(W.POINT)]
         self.u.SetCursorPos.argtypes=[C.c_int,C.c_int]
@@ -261,7 +262,8 @@ class Windows:
             return not cancel.is_set() and self.active(hwnd) and self.rect(hwnd)==rect
         def emit(position):
             if not self.u.SetCursorPos(*position):raise WindowError('중앙으로 마우스를 이동하지 못했습니다.')
-        return smooth_move((point.x,point.y),(left+LIST_PARK_POINT[0],top+LIST_PARK_POINT[1]),emit,ready,cancel.wait)
+        px,py=client_point(LIST_PARK_POINT,(width,height))
+        return smooth_move((point.x,point.y),(left+px,top+py),emit,ready,cancel.wait)
 
     def click(self, hwnd, point):
         # Recheck identity, rights and foreground before every click.
@@ -270,11 +272,8 @@ class Windows:
         if not self.active(hwnd):
             raise WindowError('게임 창이 앞에 있지 않아 입력을 보류했습니다.')
         left,top,width,height = self.rect(hwnd)
-        if (width,height) != (800,1000):
-            raise WindowError('게임 화면이 800×1000이 아닙니다. 중지 후 크기를 다시 맞추세요.')
-        x,y = point
-        if not (0 <= x < width and 0 <= y < height):
-            raise WindowError('화면 밖 클릭을 차단했습니다.')
+        try:x,y=client_point(point,(width,height))
+        except ValueError as error:raise WindowError(str(error)) from error
         vx,vy = self.u.GetSystemMetrics(76), self.u.GetSystemMetrics(77)
         vw,vh = self.u.GetSystemMetrics(78), self.u.GetSystemMetrics(79)
         sx,sy = left+x, top+y
