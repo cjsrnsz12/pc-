@@ -1,7 +1,7 @@
 {
-  "version": "1.1.28",
-  "title": "어비스 파티 반복·공통 부활과 회복·레이드 복귀 반복",
-  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.1.28",
-  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.1.28/AbyssHelper.exe",
-  "notes": "어비스 파티 재입장, 글씨로 부활 인식, 저체력 F1 물약 사용, 레이드 처치 연출·주말 보상·배 복귀와 재출항"
+  "version": "1.1.29",
+  "title": "레이드·파티 안내 정리",
+  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.1.29",
+  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.1.29/AbyssHelper.exe",
+  "notes": "레이드 미완성 표시·시작 확인창 제거, 파티 준비 중 표시 제거, 기존 파티 설정 유지"
 }

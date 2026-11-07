@@ -1,4 +1,4 @@
-"""Kabrak solo raid recognition and return-to-ship repeat flow (unfinished preview)."""
+"""Kabrak solo raid recognition and return-to-ship repeat flow."""
 from dataclasses import dataclass,replace
 from pathlib import Path
 import base64

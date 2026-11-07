@@ -4,7 +4,7 @@ import tkinter as tk
 
 DIFFICULTY_COLORS={'입문':'#a084ff','어려움':'#ffc454','매우 어려움':'#ff6547','매우 어려움2':'#ff6547'}
 CONTENT_TYPES=['어비스','레이드']
-PLAY_MODES=['솔로 플레이','파티 플레이 (3인 제한 · 우만) · 준비 중']
+PLAY_MODES=['솔로 플레이','파티 플레이 (3인 제한 · 우만)']
 
 class SmoothChoice(tk.Frame):
     def __init__(self,parent,textvariable,values,colors=None,command=None,**kwargs):

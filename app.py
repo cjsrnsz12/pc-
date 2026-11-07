@@ -75,7 +75,6 @@ class App:
         self.stop_event = threading.Event()
         self.worker = None
         self.running = False
-        self.raid_confirming = False
         self.sizing_busy = False
         self.resize_target=(800,1000)
         self.closing = False
@@ -183,7 +182,7 @@ class App:
         self.content=tk.StringVar(value=self.settings.get('content','어비스'))
         if self.content.get() not in CONTENT_TYPES:self.content.set('어비스')
         self.content_box=SmoothChoice(destination_section,textvariable=self.content,values=CONTENT_TYPES);self.content_box.pack(fill='x')
-        self.content_hint=ttk.Label(destination_section,text='레이드 · 준비 중',foreground='#ffc454',padding=(0,12),wraplength=650)
+        self.content_hint=ttk.Label(destination_section,text='레이드 · 보상 확인·배 복귀·재출항 반복',foreground='#ffc454',padding=(0,12),wraplength=650)
         options=self.destination_options=ttk.Frame(destination_section);options.pack(fill='x',pady=(12,0))
         options.columnconfigure(0,weight=1);options.columnconfigure(1,weight=1)
         ttk.Label(options,text='목적지').grid(row=0,column=0,sticky='w',pady=(0,5))
@@ -196,7 +195,7 @@ class App:
         self.difficulty_box=SmoothChoice(options,textvariable=self.difficulty,values=DIFFICULTIES,colors=DIFFICULTY_COLORS);self.difficulty_box.grid(row=1,column=1,sticky='ew',padx=(12,0))
         self.repeat=tk.BooleanVar(value=bool(self.settings.get('repeat',True)))
         self.food=tk.BooleanVar(value=bool(self.settings.get('food',True)))
-        self.play_mode=tk.StringVar(value=self.settings.get('play_mode',PLAY_MODES[0]))
+        self.play_mode=tk.StringVar(value=self.settings.get('play_mode',PLAY_MODES[0]).removesuffix(' · 준비 중'))
         if self.play_mode.get() not in PLAY_MODES:self.play_mode.set(PLAY_MODES[0])
         self.play_mode.trace_add('write',self.play_mode_changed)
         self.repeat.set(True)
@@ -274,7 +273,7 @@ class App:
         self.dungeon.set(destination);self.difficulty.set(difficulty)
         self.destination_options.pack(fill='x',pady=(12,0))
         if raid:
-            self.content_hint.configure(text='레이드 · 미완성 기능 · 보상 확인·배 복귀·재출항 반복')
+            self.content_hint.configure(text='레이드 · 보상 확인·배 복귀·재출항 반복')
             self.content_hint.pack(fill='x')
         else:self.content_hint.pack_forget()
         self.entry_hint.set('레이드 조건: 카브락 · 혼자하기 · 입문/어려움 · 지역 도착 후 출항' if raid else '입장 조건: 함께하기 · 선택한 난이도 · 우연한 만남 ON')
@@ -468,17 +467,7 @@ class App:
             self.start_button.configure(state='disabled' if self.running or self.installing else 'normal')
 
     def start(self):
-        if self.running or self.sizing_busy or self.installing or self.closing or self.raid_confirming:return
-        if self.content.get()=='레이드':
-            self.raid_confirming=True
-            try:
-                accepted=messagebox.askyesno('레이드 실행 확인','현재 미완성인 기능입니다.\n사용하시겠습니까?',default=messagebox.NO,parent=self.root)
-            finally:self.raid_confirming=False
-            if accepted is not True:
-                self.stop_event.set();self.status.set('레이드 실행 취소')
-                self.log('레이드 실행 확인: 아니오 또는 창 닫기 → 실행하지 않음')
-                return
-            if self.closing or self.installing or self.sizing_busy:return
+        if self.running or self.sizing_busy or self.installing or self.closing:return
         try:
             self.refresh()
             hwnd=self.selected()
