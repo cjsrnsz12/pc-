@@ -527,7 +527,7 @@ class App:
                     frame=np.array(capture.grab({'left':left,'top':top,'width':width,'height':height}))[:,:,:3]
                     frame=cv2.resize(frame,(800,1000))
                     observation=detector.observe(frame,config['dungeon'],config['difficulty'],after_clear=controller.clear_clicked)
-                    if raid and raid_center.observe(observation.screen):
+                    if raid and raid_center.observe(observation.screen,entered=controller.phase=='inside'):
                         self.events.put(('status',('카브락 보스방 입장 확인','게임 화면 중앙으로 마우스를 부드럽게 이동합니다.')))
                         if self.win.center_raid_pointer(hwnd,self.stop_event):
                             raid_center.completed()

@@ -33,15 +33,30 @@ class RaidVision(Vision):
             for scale in (.75,.8,.85,.9,.95,1.,1.05,1.1,1.15,1.2,1.25,1.3):
                 text=cv2.resize(template,None,fx=scale,fy=scale).astype(np.float32)
                 self.skip_edges.append(np.clip((text-cv2.GaussianBlur(text,(0,0),1.2))*3+128,0,255).astype(np.uint8))
+        self.goal_edges=[]
+        for name in ('r_inside_goal','r_inside_goal_new'):
+            self.data[name]=dict(self.data[name],roi=(560,180,800,500))
+            goal=self.templates[name][0]
+            for scale in (.8,.85,.9,.95,1.,1.05,1.1,1.15,1.2,1.25):
+                scaled=cv2.resize(goal,None,fx=scale,fy=scale)
+                self.templates[name].extend([scaled,cv2.GaussianBlur(scaled,(3,3),.5)])
+                text=scaled.astype(np.float32)
+                self.goal_edges.append(np.clip((text-cv2.GaussianBlur(text,(0,0),1.2))*3+128,0,255).astype(np.uint8))
 
     def raid_skip_button(self):
         original=self.hit('r_intro_skip') or self.hit('r_defeat_skip')
         if original:return original
-        x,y,x2,y2=520,15,800,170
+        return self.phrase_hit(self.skip_edges,(520,15,800,170),'raid_skip_edges')
+
+    def raid_goal(self):
+        return self.hit('r_inside_goal') or self.hit('r_inside_goal_new') or self.phrase_hit(self.goal_edges,(560,180,800,500),'raid_goal_edges')
+
+    def phrase_hit(self,templates,box,score_key):
+        x,y,x2,y2=box
         roi=self.gray[y:y2,x:x2].astype(np.float32)
         edges=np.clip((roi-cv2.GaussianBlur(roi,(0,0),1.2))*3+128,0,255).astype(np.uint8)
         best=None
-        for template in self.skip_edges:
+        for template in templates:
             h,w=template.shape
             if h>edges.shape[0] or w>edges.shape[1]:continue
             _,score,_,pos=cv2.minMaxLoc(cv2.matchTemplate(edges,template,cv2.TM_CCOEFF_NORMED))
@@ -50,7 +65,7 @@ class RaidVision(Vision):
                 parts=[(candidate[:,:split],template[:,:split]),(candidate[:,split:],template[:,split:])]
                 if any(float(cv2.matchTemplate(a,b,cv2.TM_CCOEFF_NORMED)[0,0])<.55 for a,b in parts):continue
             if best is None or score>best.score:best=Hit(score,(x+pos[0],y+pos[1],w,h))
-        self.scores['raid_skip_edges']=round(best.score,4) if best else None
+        self.scores[score_key]=round(best.score,4) if best else None
         return best if best and best.score>=.72 else None
 
     def bread_button(self):
@@ -91,9 +106,11 @@ class RaidVision(Vision):
             return RaidObservation('raid_return',{'exit':button.center} if button else {},return_ready=True)
         if self.hit('r_boat_task') and (button:=self.hit('r_boat_depart')):
             return RaidObservation('raid_boat',{'boat_depart':button.center})
-        hud=self.color_fraction((80,85,214,110),'green')>.10
-        if hud and self.hit('r_inside_goal'):
-            bread=self.bread_button()
+        hud=self.color_fraction((80,85,220,110),'green')>.10
+        if not hud and self.hit('menu'):
+            hud=any(self.color_fraction(box,'green')>.003 for box in ((80,85,220,110),(80,50,220,78)))
+        if self.raid_goal():
+            bread=self.bread_button() if hud else None
             return RaidObservation('raid_inside',{'food':bread.center} if bread else {},dungeon='카브락',food=bread is not None)
 
         if (title:=self.hit('r_detail_name')) and (solo:=self.hit('r_solo') or self.hit('r_solo_on')):
@@ -241,10 +258,11 @@ class RaidController(Controller):
             if action:
                 self.defeat_skipped=True;self.phase='aftermath';self.clear_seen_at=now
             return action
-        if o.screen=='raid_inside':
+        if o.screen in ('raid_inside','combat'):
             self.phase='inside';self.entered_at=None;self.state=State.COMBAT
-            self.reason='카브락 입장 확인 · 지정된 빵 아이콘이 보일 때만 음식 사용'
-            return self.food_action(o,now)
+            self.combat_latched=True;self.still_since=None
+            self.reason='카브락 입장 확인 · 지정된 빵 아이콘이 보일 때만 음식 사용' if o.screen=='raid_inside' else '현재 전투 HUD 확인 · 레이드 전투 중'
+            return self.food_action(o,now) if o.screen=='raid_inside' else None
         if self.phase=='inside':
             self.state=State.COMBAT;self.reason='카브락 전투 중 · 입장·메뉴 조작 없이 음식 아이콘 확인'
             return None
@@ -315,6 +333,4 @@ class RaidController(Controller):
             self.state=State.LIST;self.reason='레이드 목록에서 카브락 선택'
             return self.emit('raid_dungeon',o.points.get('dungeon'),'카브락 레이드 선택',now)
         if o.screen=='field':return super().step(o,now)
-        if o.screen=='combat':
-            self.state=State.WAIT;self.reason='레이드 전투 화면 · 전투 동작은 추가 구현 대기'
         return None

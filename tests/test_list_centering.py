@@ -61,3 +61,13 @@ def test_other_screens_and_abyss_never_request_raid_entry_centering():
     c=RaidEntryCentering()
     for screen in ['field','list','detail','combat','raid_menu','raid_list','raid_detail','raid_boat','raid_cutscene','raid_reward','dead']:
         assert not c.observe(screen) and not c.observe(screen)
+
+
+def test_confirmed_generic_combat_also_parks_once_when_goal_is_hidden():
+    from list_centering import RaidEntryCentering
+    c=RaidEntryCentering()
+    assert not c.observe('combat')
+    assert not c.observe('combat',entered=True)
+    assert c.observe('combat',entered=True)
+    c.completed()
+    for _ in range(5):assert not c.observe('combat',entered=True)

@@ -27,13 +27,14 @@ class RaidEntryCentering:
     def __init__(self):
         self.prepared=False;self.frames=0
 
-    def observe(self,screen):
-        if screen=='raid_inside':self.frames+=1
+    def observe(self,screen,entered=False):
+        inside=screen=='raid_inside' or (screen=='combat' and entered)
+        if inside:self.frames+=1
         else:
             self.frames=0
             if screen in ('raid_boat','raid_detail','raid_return','raid_travel','raid_list','raid_menu'):
                 self.prepared=False
-        return screen=='raid_inside' and self.frames>=2 and not self.prepared
+        return inside and self.frames>=2 and not self.prepared
 
     def completed(self):
         self.prepared=True;self.frames=0

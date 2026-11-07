@@ -449,3 +449,50 @@ def test_missing_ship_button_or_completion_never_clicks_party_exit(missing):
     else:f[245:330,610:800]=0
     o=v.observe(f);assert o.screen=='raid_return_dialog'
     assert RaidController().step(o,0) is None
+
+
+@pytest.mark.parametrize('phase',['prepare','launching','boarding','boat','sailing'])
+def test_actual_combat_hud_exits_entry_wait_even_when_raid_goal_is_hidden(phase):
+    c=RaidController();c.phase=phase;c.entered_at=0
+    assert c.step(Observation('combat'),20) is None
+    assert c.phase=='inside' and c.state==State.COMBAT and c.entered_at is None
+    assert c.step(Observation('combat'),300) is None and c.state==State.COMBAT
+    assert c.step(Observation('field',{'menu':(770,60)},still=True),305) is None
+    assert c.state==State.COMBAT
+
+
+@pytest.mark.parametrize('background',[50,160,230])
+@pytest.mark.parametrize('scale',[.8,1.,1.2])
+def test_raid_goal_lettering_on_changed_scene_and_lower_quest_position(background,scale):
+    v=RaidVision(ROOT/'assets.json');source=v.templates['r_inside_goal'][0].astype(np.float32)
+    # Photometric changes and relocation preserve the supplied glyph shapes.
+    label=cv2.resize(np.clip(source*.4+background*.6,0,255).astype(np.uint8),None,fx=scale,fy=scale)
+    f=frame('inside');f[210:420,600:800]=0
+    h,w=label.shape;f[435:435+h,640:640+w]=cv2.cvtColor(label,cv2.COLOR_GRAY2BGR)
+    o=v.observe(f)
+    assert o.screen=='raid_inside'
+    c=RaidController();c.phase='sailing';c.entered_at=0
+    c.step(o,20);assert c.state==State.COMBAT and c.entered_at is None
+
+
+def test_low_hp_with_menu_and_raid_goal_still_confirms_entry():
+    from tests.test_survival import frame as survival_frame
+    v=RaidVision(ROOT/'assets.json');f=frame('inside');hud=survival_frame('low')
+    f[85:110,75:220]=0;f[95:102,87:90]=(0,220,0)
+    f[40:85,740:800]=hud[40:85,740:800]
+    assert v.observe(f).screen=='raid_inside'
+    f[85:110,75:220]=0
+    assert v.observe(f).screen=='raid_inside' and not v.observe(f).food
+
+
+@pytest.mark.parametrize('scale',[.8,1.,1.2])
+def test_user_supplied_kabrak_clear_text_proves_combat_without_hp_or_revive_count(scale):
+    v=RaidVision(ROOT/'assets.json');f=np.zeros((1000,800,3),np.uint8)
+    t=cv2.resize(v.templates['r_inside_goal_new'][0],None,fx=scale,fy=scale)
+    h,w=t.shape;f[275:275+h,640:640+w]=cv2.cvtColor(t,cv2.COLOR_GRAY2BGR)
+    o=v.observe(f)
+    assert o.screen=='raid_inside' and not o.food
+    c=RaidController();c.phase='sailing';c.entered_at=0
+    c.step(o,20)
+    assert c.state==State.COMBAT and c.phase=='inside' and c.entered_at is None
+    assert c.step(Observation(),300) is None and c.state==State.COMBAT
