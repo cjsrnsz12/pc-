@@ -35,6 +35,8 @@ class Vision:
         self.data.update(HUD_TEMPLATES)
         self.data.update(SURVIVAL_TEMPLATES)
         self.data.update(PARTY_TEMPLATES)
+        for name in ('abyss','abyss_collab','menu_field_boss','menu_raid'):
+            self.data[name]=dict(self.data[name],roi=(350,180,760,870))
         # The food button sits beside the portrait, above the buff icon row.
         self.data['food']['roi'] = [65,45,250,180]
         for key in DUNGEONS.values():
@@ -52,6 +54,12 @@ class Vision:
             if name.startswith('list_'):
                 # A normalized smaller client has slightly softer glyph edges.
                 self.templates[name].append(cv2.GaussianBlur(png,(3,3),.5))
+            if name in ('abyss','abyss_collab','menu_field_boss','menu_raid'):
+                # Window sizing does not fix the game's independent UI scale.
+                # Keep the existing variants first, then search larger/smaller
+                # glyphs while still requiring the close button and a row anchor.
+                base=self.templates[name][0]
+                self.templates[name].extend(cv2.resize(base,None,fx=s,fy=s) for s in (.8,.85,.9,1.1,1.15,1.2,1.25,1.3))
         self.result_templates={name:[cv2.resize(self.templates[name][0],None,fx=s,fy=s) for s in (.8,.85,.9,.95,1.05,1.1,1.15,1.2,1.25,1.3)] for name in ('clear','touch','retry','exit','party_other')}
         self.stillness = Stillness()
         self.cache = {}

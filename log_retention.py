@@ -33,7 +33,7 @@ def cleanup_artifacts(directory,now):
     existing=[p for p in pair if p.is_file()]
     if existing and any(p.stat().st_mtime<start for p in existing):
         for path in existing:path.unlink(missing_ok=True)
-    for path in [root/'로그 파일.zip',root/'로그 파일.zip.tmp',root/'diagnostics'/'image.tmp',root/'diagnostics'/'metadata.tmp']:
+    for path in [root/'로그 파일.zip',root/'로그 파일.zip.tmp',root/'diagnostics'/'image.tmp',root/'diagnostics'/'metadata.tmp',*root.glob('로그 파일-*.zip'),*root.glob('로그 파일-*.tmp')]:
         if path.is_file() and path.stat().st_mtime<start:path.unlink(missing_ok=True)
 
 

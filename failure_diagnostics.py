@@ -22,23 +22,42 @@ def save_failure(directory,frame,metadata):
 
 
 def create_bundle(directory,destination=None):
+    import os
+    import tempfile
     import zipfile
     directory=Path(directory)
     now=datetime.now();cleanup_artifacts(directory,now)
     destination=Path(destination) if destination else directory/'로그 파일.zip'
     destination.parent.mkdir(parents=True,exist_ok=True)
-    temporary=destination.with_name(destination.name+'.tmp')
-    primary=directory/LOG_FILENAME
-    if not primary.exists():primary=directory/'app.log'
-    with zipfile.ZipFile(temporary,'w',zipfile.ZIP_DEFLATED) as archive:
-        if primary.is_file():archive.writestr(LOG_FILENAME,retained_text(primary.read_text(encoding='utf-8-sig',errors='replace'),now))
-        for i in range(1,4):
-            rotated=primary.with_name(primary.name+'.'+str(i))
-            if rotated.is_file():
-                kept=retained_text(rotated.read_text(encoding='utf-8-sig',errors='replace'),now)
-                if kept:archive.writestr(LOG_FILENAME+'.'+str(i),kept)
-        for source,name in [('last-unrecognized.png','오류 화면.png'),('last-unrecognized.json','오류 정보.json')]:
-            path=directory/'diagnostics'/source
-            if path.is_file():archive.write(path,name)
-    temporary.replace(destination)
-    return destination
+    # Manual export and automatic diagnostics can run at the same time.
+    fd,name=tempfile.mkstemp(prefix=destination.stem+'-',suffix='.tmp',dir=destination.parent)
+    os.close(fd);temporary=Path(name)
+    try:
+        primary=directory/LOG_FILENAME
+        if not primary.exists():primary=directory/'app.log'
+        with zipfile.ZipFile(temporary,'w',zipfile.ZIP_DEFLATED) as archive:
+            if primary.is_file():archive.writestr(LOG_FILENAME,retained_text(primary.read_text(encoding='utf-8-sig',errors='replace'),now))
+            for i in range(1,4):
+                rotated=primary.with_name(primary.name+'.'+str(i))
+                if rotated.is_file():
+                    kept=retained_text(rotated.read_text(encoding='utf-8-sig',errors='replace'),now)
+                    if kept:archive.writestr(LOG_FILENAME+'.'+str(i),kept)
+            for source,name in [('last-unrecognized.png','오류 화면.png'),('last-unrecognized.json','오류 정보.json')]:
+                path=directory/'diagnostics'/source
+                if path.is_file():archive.write(path,name)
+        try:
+            temporary.replace(destination)
+        except PermissionError:
+            # Explorer/another app may hold the existing ZIP open on Windows.
+            # Preserve it and keep this complete snapshot under a fresh name.
+            if not destination.is_file():raise
+            fd,name=tempfile.mkstemp(prefix=destination.stem+'-',suffix='.zip',dir=destination.parent)
+            os.close(fd);alternate=Path(name)
+            try:temporary.replace(alternate)
+            except OSError:
+                alternate.unlink(missing_ok=True)
+                raise
+            destination=alternate
+        return destination
+    finally:
+        temporary.unlink(missing_ok=True)

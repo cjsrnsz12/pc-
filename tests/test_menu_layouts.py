@@ -43,3 +43,29 @@ def test_isolated_abyss_icon_does_not_prove_menu_is_open():
     for close,anchors in [(False,True),(True,False)]:
         v=Vision(ASSETS);o=v.observe(menu_frame(close=close,anchors=anchors),'허상의 정박지','매우 어려움')
         assert o.screen!='menu'
+
+
+def logged_menu_frame():
+    import json,base64
+    f=np.zeros((1000,800,3),np.uint8)
+    for patch in json.loads((Path(__file__).parent/'fixtures/menu-ui-scale.json').read_text()):
+        x,y,x2,y2=patch['box']
+        f[y:y2,x:x2]=cv2.imdecode(np.frombuffer(base64.b64decode(patch['png']),np.uint8),cv2.IMREAD_COLOR)
+    return f
+
+
+def test_logged_125_percent_pc_menu_finds_current_abyss_button_at_all_supported_sizes():
+    for size in [(800,1000),(784,980),(640,800)]:
+        v=Vision(ASSETS);o=v.observe(cv2.resize(logged_menu_frame(),size),'허상의 정박지','매우 어려움')
+        assert o.screen=='menu'
+        x,y=o.points['abyss'];assert 480<=x<=515 and 355<=y<=410
+        assert Controller().step(o,0).point==o.points['abyss']
+
+
+def test_enlarged_abyss_menu_still_requires_close_and_neighbor_evidence():
+    for missing in ['close','neighbors','abyss']:
+        f=logged_menu_frame()
+        if missing=='close':f[25:115,730:800]=0
+        elif missing=='neighbors':f[345:420,385:450]=0;f[345:420,625:685]=0
+        else:f[345:420,470:525]=0
+        assert Vision(ASSETS).observe(f,'허상의 정박지','매우 어려움').screen!='menu'

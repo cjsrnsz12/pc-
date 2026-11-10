@@ -238,14 +238,16 @@ class App:
         destination=filedialog.asksaveasfilename(parent=self.root,title='로그 파일과 오류 화면 함께 저장',initialfile='로그 파일.zip',defaultextension='.zip',filetypes=[('로그 묶음','*.zip')])
         if not destination:return
         try:
-            _handler.flush();create_bundle(DATA,destination)
-            messagebox.showinfo('로그 파일','로그 파일과 저장된 오류 화면을 ZIP으로 묶었습니다. 이 대화에 첨부해 주세요.',parent=self.root)
+            _handler.flush();saved=create_bundle(DATA,destination)
+            messagebox.showinfo('로그 파일','로그 파일과 저장된 오류 화면을 ZIP으로 묶었습니다. 이 대화에 첨부해 주세요.\n'+str(saved),parent=self.root)
         except OSError as error:messagebox.showerror('로그 파일 저장 실패',str(error),parent=self.root)
 
     def save_problem(self,frame,metadata):
         save_failure(DATA/'diagnostics',frame,metadata)
-        LOG.info('오류 화면·진단 정보 저장 완료. 로그 파일.zip을 보내 주세요.')
-        _handler.flush();create_bundle(DATA)
+        LOG.info('오류 화면·진단 정보 저장 완료.')
+        _handler.flush();saved=create_bundle(DATA)
+        LOG.info('진단 묶음 저장: %s',saved)
+        return saved
 
     def scroll_page(self,event):
         if not isinstance(event.widget,tk.Misc):return
@@ -567,9 +569,9 @@ class App:
                                               'client_rect':[left,top,width,height],'desktop_bounds':bounds,
                                               'window':self.win.diagnostics(hwnd),'controller_state':controller.state.value,
                                               'last_action':controller.last_key,'template_scores':dict(detector.scores)}
-                                    self.save_problem(frame,metadata)
+                                    saved=self.save_problem(frame,metadata)
                                     diagnostics_saved=True
-                                    self.events.put(('log','진단 저장: 기록 폴더의 로그 파일.zip에 로그와 오류 화면을 함께 담았습니다. 자동 전송하지 않습니다.'))
+                                    self.events.put(('log','진단 저장: '+saved.name+'에 로그와 오류 화면을 함께 담았습니다. 자동 전송하지 않습니다.'))
                                 except Exception as error:
                                     self.events.put(('log','진단 저장 실패: '+str(error)))
 

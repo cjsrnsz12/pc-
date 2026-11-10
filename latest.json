@@ -1,7 +1,7 @@
 {
-  "version": "1.1.32",
-  "title": "카브락 입장 후 전투 상태 인식 수정",
-  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.1.32",
-  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.1.32/AbyssHelper.exe",
-  "notes": "카브락 클리어 글씨 확인 시 전투 중 전환, 일반 전투 HUD에서도 입장 대기 해제, 보스방 중앙 이동 연계"
+  "version": "1.1.33",
+  "title": "어비스 메뉴 인식·진단 ZIP 저장 개선",
+  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.1.33",
+  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.1.33/AbyssHelper.exe",
+  "notes": "커진 메뉴 UI에서도 어비스 버튼 확인, 기존 ZIP이 열려 있으면 새 이름으로 진단 저장, 동시 저장 충돌 방지"
 }

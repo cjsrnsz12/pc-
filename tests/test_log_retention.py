@@ -65,3 +65,13 @@ def test_midnight_cleanup_is_scheduled_before_regular_poll(tmp_path):
     handler=DailyRetentionHandler(tmp_path,clock=lambda:now)
     try:assert handler.next_cleanup_ms()==501
     finally:handler.close()
+
+
+def test_alternate_archives_and_unique_staging_files_follow_daily_retention(tmp_path):
+    now=datetime(2026,11,11,1,0);old=(now-timedelta(hours=2)).timestamp()
+    stale=[tmp_path/'로그 파일-previous.zip',tmp_path/'로그 파일-abandoned.tmp']
+    for p in stale:p.write_text('old');os.utime(p,(old,old))
+    current=tmp_path/'로그 파일-current.zip';current.write_text('current')
+    os.utime(current,(now.timestamp(),now.timestamp()))
+    cleanup_artifacts(tmp_path,now)
+    assert all(not p.exists() for p in stale) and current.is_file()

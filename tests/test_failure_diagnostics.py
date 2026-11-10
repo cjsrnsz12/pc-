@@ -51,3 +51,35 @@ def test_legacy_log_can_be_exported_with_requested_filename(tmp_path):
     (tmp_path/'app.log').write_text(text)
     with zipfile.ZipFile(create_bundle(tmp_path)) as archive:
         assert archive.read('로그 파일.log').decode()==text
+
+
+def test_locked_existing_zip_is_preserved_and_new_snapshot_is_saved(tmp_path,monkeypatch):
+    import zipfile
+    from pathlib import Path
+    from datetime import datetime
+    from failure_diagnostics import create_bundle,LOG_FILENAME
+    destination=tmp_path/'로그 파일.zip';destination.write_bytes(b'previous bundle held open')
+    (tmp_path/LOG_FILENAME).write_text(datetime.now().strftime('%Y-%m-%d %H:%M:%S')+' INFO new capture\n')
+    original=Path.replace
+    def locked(source,target):
+        if Path(target)==destination:raise PermissionError(5,'Access is denied')
+        return original(source,target)
+    monkeypatch.setattr(Path,'replace',locked)
+    saved=create_bundle(tmp_path)
+    assert saved!=destination and saved.name.startswith('로그 파일-')
+    assert destination.read_bytes()==b'previous bundle held open'
+    with zipfile.ZipFile(saved) as archive:assert 'new capture' in archive.read(LOG_FILENAME).decode()
+    assert not list(tmp_path.glob('*.tmp'))
+
+
+def test_simultaneous_exports_use_independent_staging_files(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    import zipfile
+    from datetime import datetime
+    from failure_diagnostics import create_bundle,LOG_FILENAME
+    (tmp_path/LOG_FILENAME).write_text(datetime.now().strftime('%Y-%m-%d %H:%M:%S')+' INFO concurrent\n')
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        paths=list(pool.map(lambda _:create_bundle(tmp_path),range(2)))
+    for path in paths:
+        with zipfile.ZipFile(path) as archive:assert 'concurrent' in archive.read(LOG_FILENAME).decode()
+    assert not list(tmp_path.glob('*.tmp'))
