@@ -1,7 +1,7 @@
 {
-  "version": "1.1.33",
-  "title": "어비스 메뉴 인식·진단 ZIP 저장 개선",
-  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.1.33",
-  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.1.33/AbyssHelper.exe",
-  "notes": "커진 메뉴 UI에서도 어비스 버튼 확인, 기존 ZIP이 열려 있으면 새 이름으로 진단 저장, 동시 저장 충돌 방지"
+  "version": "1.1.34",
+  "title": "파티 재입장·작은 어비스 목록 인식 수정",
+  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.1.34",
+  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.1.34/AbyssHelper.exe",
+  "notes": "다른 던전 가기 후 작은 목록 인식·마우스 이동 복구, 화면 인식 누락 후에도 조건 재확인·입장 재시도"
 }

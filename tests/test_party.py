@@ -73,3 +73,76 @@ def test_party_wrong_dungeon_or_unknown_encounter_cannot_enter():
 def test_other_text_alone_cannot_establish_reward_screen():
     v=Vision(ROOT/'assets.json');f=frame('reward');f[910:990,165:470]=0
     assert v.observe(f,'흩어진 물길','매우 어려움2',after_clear=True).screen!='reward'
+
+
+@pytest.mark.parametrize('dungeon',DUNGEONS)
+@pytest.mark.parametrize('size',[(800,1000),(784,980),(640,800)])
+def test_other_pc_list_prepares_pointer_before_destination_selection(dungeon,size):
+    from list_centering import ListCentering
+    f=np.zeros((1000,800,3),np.uint8)
+    patches=json.loads((ROOT/'tests/fixtures/party-small-list.json').read_text())
+    for p in patches:
+        x,y,x2,y2=p['box'];f[y:y2,x:x2]=cv2.imdecode(np.frombuffer(base64.b64decode(p['png']),np.uint8),cv2.IMREAD_COLOR)
+    v=Vision(ROOT/'assets.json');c=Controller(dungeon,party=True);center=ListCentering()
+    assert c.step(O('reward',{'other':(550,950)}),0).key=='other'
+    # Header alone must trigger centering; no dungeon coordinates are needed yet.
+    heading=f.copy();heading[400:860,170:390]=0
+    for index in range(2):
+        o=v.observe(cv2.resize(heading,size),dungeon,'매우 어려움')
+        assert o.screen=='list' and not o.points
+        assert center.observe(o.screen)==(index==1)
+    center.completed()
+    # Only a fresh post-move capture is used to select the actual label position.
+    o=v.observe(cv2.resize(f,size),dungeon,'매우 어려움')
+    assert o.screen=='list' and o.dungeon==dungeon
+    assert not center.observe(o.screen)
+    assert c.step(o,1).point==o.points['dungeon']
+
+
+def party_pending_entry():
+    c=Controller('흩어진 물길','매우 어려움2',party=True)
+    c.step(O('reward',{'other':(550,950)}),0)
+    c.step(O('list',{'dungeon':(240,600)},dungeon='흩어진 물길'),1)
+    detail=O('detail',{'enter':(490,950)},'흩어진 물길',True,'매우 어려움2',True)
+    assert c.step(detail,2).key=='enter'
+    return c,detail
+
+
+def test_slow_entry_retries_current_detail_after_unknown_frames_without_resetting_limit():
+    c,detail=party_pending_entry()
+    for lost,now in [(3,4.5),(5.5,7)]:
+        assert c.step(O(),lost) is None
+        assert c.step(detail,now).key=='enter'
+    c.step(O(),8)
+    assert c.step(detail,9.5) is None and c.state==State.BLOCKED
+
+
+def test_old_field_frame_does_not_count_as_new_entry_or_prevent_retry():
+    c,detail=party_pending_entry()
+    assert c.step(O('field',{'menu':(770,60)},still=True),3) is None
+    assert c.party_stage=='entering' and c.repeats==0 and c.state==State.ENTERING
+    assert c.step(detail,4.5).key=='enter'
+    c.step(O('matching'),6);assert c.repeats==1 and c.party_stage is None
+    c.step(O('loading'),7);assert c.repeats==1
+
+
+def test_reentry_deadline_covers_unknown_frames_and_known_list_with_missing_target():
+    c,_=party_pending_entry()
+    assert c.step(O(),243) is None and c.state==State.BLOCKED
+    c=Controller(party=True);c.step(O('reward',{'other':(550,950)}),0)
+    assert c.step(O('list'),241) is None and c.state==State.BLOCKED
+
+
+def test_pending_retry_revalidates_changed_entry_conditions():
+    from dataclasses import replace
+    c,detail=party_pending_entry();c.step(O(),3)
+    assert c.step(replace(detail,encounter=None),4.5) is None
+    assert c.step(replace(detail,dungeon='광기의 동굴'),5) is None
+    assert c.state==State.BLOCKED
+
+
+def test_first_party_entry_does_not_increment_completion_count():
+    c=Controller('흩어진 물길','매우 어려움2',party=True)
+    c.step(O('detail',{'enter':(490,950)},'흩어진 물길',True,'매우 어려움2',True),0)
+    c.step(O('matching'),1)
+    assert c.repeats==0

@@ -44,6 +44,7 @@ class Controller:
     def __init__(self, dungeon='허상의 정박지', difficulty='매우 어려움', repeat=True, party=False):
         self.dungeon, self.difficulty, self.repeat = dungeon, difficulty, repeat
         self.party=party;self.party_stage=None
+        self.party_entry_last=-999.;self.party_entry_attempts=0
         self.state = State.SCAN
         self.reason = ''
         self.still_since = None
@@ -133,16 +134,23 @@ class Controller:
                 self.state = State.LIST if self.party else State.ENTERING
                 self.entered_at = now
             return a
+        if self.party_stage is not None and self.entered_at is not None and now-self.entered_at>240:
+            self.state,self.reason=State.BLOCKED,'파티 재입장 대기가 4분을 넘었습니다. 현재 화면을 확인하세요.'
+            return None
         if self.party_stage in ('list','detail'):
             if o.screen not in ('list','detail'):
                 self.state=State.LIST if self.party_stage=='list' else State.DETAIL
                 self.reason='파티 반복 · 선택한 던전 목록·입장 설정 확인 대기'
-                if self.entered_at is not None and now-self.entered_at>240:
-                    self.state,self.reason=State.BLOCKED,'파티 반복 던전 선택 대기가 4분을 넘었습니다.'
                 return None
             self.combat_latched=False;self.clear_clicked=False;self.clear_seen_at=None
-        if self.party_stage=='entering' and o.screen in ('matching','loading','combat','field'):
-            self.repeats+=1;self.reward_since=None;self.party_stage=None
+        if self.party_stage=='entering' and o.screen in ('matching','loading','combat','cutscene'):
+            self.repeats+=int(self.reward_since is not None);self.reward_since=None;self.party_stage=None
+            self.party_entry_last=-999.;self.party_entry_attempts=0
+        elif self.party_stage=='entering' and o.screen=='field':
+            # A brief world HUD can be the old scene while the click is handled.
+            # It proves neither matching nor a new dungeon entry.
+            self.state=State.ENTERING;self.reason='파티 입장 요청 후 우연한 만남·로딩·전투 화면 확인 중'
+            return None
         if o.screen in ('matching', 'loading'):
             self.reason='우연한 만남·던전 입장 화면 확인'
             self.clear_seen_at=None
@@ -187,7 +195,7 @@ class Controller:
             self.still_since = None
             self.clear_clicked = False
             return self.food_action(o, now)
-        if o.screen == 'detail' and self.state == State.ENTERING and self.last_key == 'enter':
+        if o.screen == 'detail' and ((self.state == State.ENTERING and self.last_key == 'enter') or self.party_stage=='entering'):
             # The button can fail to react; recheck every condition before a bounded retry.
             self.state, self.combat_latched = State.DETAIL, False
         if self.combat_latched:
@@ -218,11 +226,17 @@ class Controller:
                 return self.emit('encounter', o.points.get('encounter'), '우연한 만남 켜기', now)
             if o.encounter is not True:
                 return None
+            if self.party and self.party_stage=='entering':
+                # Keep the entry retry budget through unknown frames and overlays.
+                # Each attempt still rechecks dungeon, mode, difficulty and toggle.
+                self.last_key='enter';self.last_at=self.party_entry_last;self.attempts=self.party_entry_attempts
             a = self.emit('enter', o.points.get('enter'), '입장 조건 확인 완료 → 입장하기', now)
             if a:
                 self.state, self.entered_at = State.ENTERING, now
                 self.combat_latched = True
-                if self.party:self.party_stage='entering';self.skip_clicked=False
+                if self.party:
+                    self.party_stage='entering';self.skip_clicked=False
+                    self.party_entry_last=now;self.party_entry_attempts+=1
             return a
         if o.screen == 'list':
             self.reason='어비스 목록에서 설정한 목적지 확인'

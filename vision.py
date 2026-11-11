@@ -41,7 +41,7 @@ class Vision:
         self.data['food']['roi'] = [65,45,250,180]
         for key in DUNGEONS.values():
             # All three card labels share this column, including the supplied newer list.
-            self.data['list_'+key]['roi'] = [175,480,365,810]
+            self.data['list_'+key]['roi'] = [170,410,390,860]
         # Separate text searches so 어려움 cannot match inside 매우 어려움2.
         for title, box in zip(DIFFICULTIES, DIFFICULTY_BOXES):
             self.data['diff_'+title]['roi'] = list(box)
@@ -54,6 +54,10 @@ class Vision:
             if name.startswith('list_'):
                 # A normalized smaller client has slightly softer glyph edges.
                 self.templates[name].append(cv2.GaussianBlur(png,(3,3),.5))
+                base=self.templates[name][0]
+                for scale in (.7,.75,.8,.85,.9,1.1,1.15,1.2,1.25,1.3):
+                    scaled=cv2.resize(base,None,fx=scale,fy=scale)
+                    self.templates[name].extend([scaled,cv2.GaussianBlur(scaled,(3,3),.5)])
             if name in ('abyss','abyss_collab','menu_field_boss','menu_raid'):
                 # Window sizing does not fix the game's independent UI scale.
                 # Keep the existing variants first, then search larger/smaller
