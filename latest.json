@@ -1,7 +1,7 @@
 {
-  "version": "1.1.36",
-  "title": "파티 전투 인식·재입장 대기 수정",
-  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.1.36",
-  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.1.36/AbyssHelper.exe",
-  "notes": "회색 스킬 전투 화면 인식 개선, 파티 입장 절차보다 실제 전투·로딩 화면 우선 처리"
+  "version": "1.1.37",
+  "title": "고양이 모양 버튼",
+  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.1.37",
+  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.1.37/AbyssHelper.exe",
+  "notes": "시작·중지·로그·권한·업데이트 버튼에 고양이 귀와 수염 적용, 음식 체크 표시도 고양이 얼굴로 변경"
 }

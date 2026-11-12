@@ -14,6 +14,27 @@ def blend(a,b,t):
     return '#'+''.join(f'{round(x+(y-x)*t):02x}' for x,y in zip(a,b))
 
 
+def cat_button_image(fill,edge,size=(84,46)):
+    """Nine-slice background: fixed ears/corners, a stretchable text area."""
+    scale=4;w,h=size
+    image=Image.new('RGBA',(w*scale,h*scale));d=ImageDraw.Draw(image)
+    def points(items):return [(round(x*scale),round(y*scale)) for x,y in items]
+    for ear in ([(6,20),(8,2),(28,14)],[(w-28,14),(w-8,2),(w-6,20)]):
+        d.polygon(points(ear),fill=fill)
+        d.line(points(ear),fill=edge,width=scale,joint='curve')
+    d.rounded_rectangle((2*scale,12*scale,(w-2)*scale,(h-2)*scale),radius=12*scale,fill=fill,outline=edge,width=scale)
+    # Remove the join across the ears so the whole button reads as one head.
+    for ear in ([(8,18),(10,5),(25,15)],[(w-25,15),(w-10,5),(w-8,18)]):
+        d.polygon(points(ear),fill=fill)
+    inner=blend(fill,edge,.55)
+    d.polygon(points([(11,12),(12,8),(18,12)]),fill=inner)
+    d.polygon(points([(w-18,12),(w-12,8),(w-11,12)]),fill=inner)
+    for x,direction in ((6,1),(w-6,-1)):
+        for y,dy in ((29,-1),(34,1)):
+            d.line(points([(x,y),(x+direction*6,y+dy)]),fill=inner,width=scale)
+    return image.resize(size,Image.Resampling.LANCZOS)
+
+
 class SmoothCheckbutton(tk.Frame):
     def __init__(self,parent,text,variable,command=None,**kwargs):
         self.disabled=False;self.hover=0.;self.selected=float(bool(variable.get()));self.variable=variable;self.command=command
@@ -83,11 +104,17 @@ class SmoothCheckbutton(tk.Frame):
         factor=4;s=self.size
         image=Image.new('RGB',(s*factor,s*factor),BG);draw=ImageDraw.Draw(image)
         width=s*(.63+.035*self.hover);left=(s-width)/2;right=left+width
-        box=tuple(round(v*factor) for v in (left,left,right,right))
         accent='#53657c' if self.disabled else ACCENT
         fill=blend('#162136',accent,self.selected*.86)
         edge=blend('#62718d',accent,max(self.selected,self.hover*.75))
-        draw.rounded_rectangle(box,radius=round(4*factor*s/28),fill=fill,outline=edge,width=max(1,round(1.4*factor*s/28)))
+        # The toggle uses the same cat-head outline as action buttons.
+        ear_top=left-s*.08;body_top=left+s*.12
+        for ear in ([(left,body_top+s*.12),(left+s*.02,ear_top),(left+s*.24,body_top)],
+                    [(right-s*.24,body_top),(right-s*.02,ear_top),(right,body_top+s*.12)]):
+            coords=[(round(x*factor),round(y*factor)) for x,y in ear]
+            draw.polygon(coords,fill=fill)
+            draw.line(coords,fill=edge,width=max(1,round(1.4*factor*s/28)))
+        draw.rounded_rectangle(tuple(round(v*factor) for v in (left,body_top,right,right)),radius=round(5*factor*s/28),fill=fill,outline=edge,width=max(1,round(1.4*factor*s/28)))
         # Reveal a ✓ along two connected segments; there are no crossed strokes.
         if self.selected>.001:
             points=[(s*.34,s*.50),(s*.46,s*.62),(s*.69,s*.37)]
@@ -115,9 +142,21 @@ class ButtonTransition:
         self.widget=widget;self.styles=ttk.Style(widget);self.job=None;self.value=0.
         base=widget.cget('style') or 'TButton'
         self.base=self.styles.lookup(base,'background') or '#263550'
+        try:self.surface=widget.master.cget('background')
+        except tk.TclError:
+            parent_style=widget.master.cget('style') or widget.master.winfo_class()
+            self.surface=self.styles.lookup(parent_style,'background') or BG
         self.disabled=self.styles.lookup(base,'background',('disabled',)) or '#172239'
         self.target='#7cecc8' if 'Start.' in base else '#354b6e'
         self.style=f'Fade{next(_IDS)}.{base}'
+        # Keep ttk's native command, keyboard, focus and disabled semantics.
+        self.image=ImageTk.PhotoImage(cat_button_image(self.base,'#536780'),master=widget)
+        self.disabled_image=ImageTk.PhotoImage(cat_button_image(self.disabled,'#34425a'),master=widget)
+        self.focus_image=ImageTk.PhotoImage(cat_button_image(self.base,'#b7a5ff'),master=widget)
+        element=f'Cat{next(_IDS)}.border'
+        self.styles.element_create(element,'image',self.image,('disabled',self.disabled_image),('focus',self.focus_image),border=(30,15,30,12),sticky='nsew')
+        self.styles.layout(self.style,[(element,{'sticky':'nsew','children':[('Button.padding',{'sticky':'nsew','children':[('Button.label',{'sticky':'nsew'})]})]})])
+        self.styles.configure(self.style,padding=(18,15,18,9),anchor='center')
         widget.configure(style=self.style)
         widget.bind('<Enter>',lambda _:self.animate(1.),add='+')
         widget.bind('<Leave>',lambda _:self.animate(0.),add='+')
@@ -125,8 +164,10 @@ class ButtonTransition:
 
     def paint(self):
         color=blend(self.base,self.target,self.value)
-        self.styles.configure(self.style,background=color,bordercolor=color,lightcolor=color,darkcolor=color)
-        self.styles.map(self.style,background=[('disabled',self.disabled),('pressed',color),('active',color),('!disabled',color)],
+        self.image.paste(cat_button_image(color,blend('#536780','#9cebd7',self.value)))
+        self.focus_image.paste(cat_button_image(color,'#b7a5ff'))
+        self.styles.configure(self.style,background=self.surface,bordercolor=self.surface,lightcolor=self.surface,darkcolor=self.surface)
+        self.styles.map(self.style,background=[('disabled',self.surface),('!disabled',self.surface)],
                         bordercolor=[('disabled',self.disabled),('!disabled',color)],lightcolor=[('!disabled',color)],darkcolor=[('!disabled',color)])
 
     def animate(self,target):
