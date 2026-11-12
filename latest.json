@@ -1,7 +1,7 @@
 {
-  "version": "1.1.35",
-  "title": "냐크로 새 디자인·입장 안정성 개선",
-  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.1.35",
-  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.1.35/AbyssHelper.exe",
-  "notes": "냐크로 이름·고양이 아이콘·카드 UI, 입장 인식 누락 후 재시도와 대기 제한 보완, 레이드 처치 연출 재시도"
+  "version": "1.1.36",
+  "title": "파티 전투 인식·재입장 대기 수정",
+  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.1.36",
+  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.1.36/AbyssHelper.exe",
+  "notes": "회색 스킬 전투 화면 인식 개선, 파티 입장 절차보다 실제 전투·로딩 화면 우선 처리"
 }

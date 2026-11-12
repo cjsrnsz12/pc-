@@ -118,6 +118,15 @@ class Controller:
             self.last_screen = o.screen
         if o.screen in ('matching','loading','combat','cutscene','clear','reward'):
             self.entry_requested=False;self.entry_last=-999.;self.entry_attempts=0
+        if self.party_stage is not None and o.screen in ('matching','loading','combat','cutscene'):
+            # The leader/server may advance before our detail/enter frame is seen.
+            # Actual progress overrides the stale party menu stage and its deadline.
+            previous_stage=self.party_stage
+            self.repeats+=int(self.reward_since is not None)
+            self.reward_since=None;self.party_stage=None
+            self.clear_clicked=False;self.clear_seen_at=None;self.skip_clicked=False
+            if previous_stage in ('list','detail'):
+                self.entered_at=now if o.screen in ('matching','loading') else None
         if self.state==State.ENTERING and self.entered_at is not None and now-self.entered_at>240 and o.screen in ('unknown','field','matching','loading','menu','list'):
             self.state,self.reason=State.BLOCKED,'입장 후 화면 전환 대기가 4분을 넘었습니다. 현재 화면을 확인하세요.'
             return None
@@ -148,9 +157,7 @@ class Controller:
                 self.reason='파티 반복 · 선택한 던전 목록·입장 설정 확인 대기'
                 return None
             self.combat_latched=False;self.clear_clicked=False;self.clear_seen_at=None
-        if self.party_stage=='entering' and o.screen in ('matching','loading','combat','cutscene'):
-            self.repeats+=int(self.reward_since is not None);self.reward_since=None;self.party_stage=None
-        elif self.party_stage=='entering' and o.screen=='field':
+        if self.party_stage=='entering' and o.screen=='field':
             # A brief world HUD can be the old scene while the click is handled.
             # It proves neither matching nor a new dungeon entry.
             self.state=State.ENTERING;self.reason='파티 입장 요청 후 우연한 만남·로딩·전투 화면 확인 중'

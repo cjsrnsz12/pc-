@@ -9,6 +9,8 @@ from engine import Observation
 from motion import Stillness
 from detail_templates import DETAIL_TEMPLATES
 from hud_templates import HUD_TEMPLATES
+from combat_templates import SKILL_BADGES
+from functools import lru_cache
 from survival_templates import SURVIVAL_TEMPLATES
 from party_templates import PARTY_TEMPLATES
 
@@ -175,9 +177,36 @@ class Vision:
         return max(candidates,key=lambda h:h.score) if candidates else None
 
     @staticmethod
+    @lru_cache(maxsize=1)
+    def skill_badge_templates():
+        patterns=[]
+        for encoded in SKILL_BADGES:
+            badge=cv2.imdecode(np.frombuffer(base64.b64decode(encoded),np.uint8),cv2.IMREAD_GRAYSCALE)
+            patterns.append([cv2.resize(badge,None,fx=s,fy=s) for s in (.85,.9,1.,1.1,1.15)])
+        return patterns
+
+    @staticmethod
+    def numbered_skill_row(gray):
+        # Six ordered hotkeys establish the expanded combat HUD even while
+        # cooldowns grey out the skills. A few circles in scenery do not.
+        roi=gray[780:915,125:680]
+        centers=[]
+        for variants in Vision.skill_badge_templates():
+            best=None
+            for template in variants:
+                _,score,_,point=cv2.minMaxLoc(cv2.matchTemplate(roi,template,cv2.TM_CCOEFF_NORMED))
+                if best is None or score>best[0]:best=(score,point,template.shape)
+            score,(x,y),(h,w)=best
+            if score<.84:return False
+            centers.append((x+w/2,y+h/2))
+        gaps=np.diff([p[0] for p in centers])
+        return bool(np.all((gaps>50)&(gaps<105)) and np.ptp([p[1] for p in centers])<12 and np.ptp(gaps)<18)
+
+    @staticmethod
     def combat_hud(frame):
         # World objects alone must not latch the entire run into combat.
         gray=cv2.cvtColor(frame,cv2.COLOR_BGR2GRAY)
+        if Vision.numbered_skill_row(gray):return True
         circles=cv2.HoughCircles(gray[820:940,160:640],cv2.HOUGH_GRADIENT,1.3,48,param1=100,param2=26,minRadius=23,maxRadius=44)
         if circles is None:return False
         hsv=cv2.cvtColor(frame[825:925,170:625],cv2.COLOR_BGR2HSV)
