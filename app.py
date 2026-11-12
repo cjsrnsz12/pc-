@@ -723,6 +723,11 @@ class App:
     def callback_error(self,typ,value,tb):
         LOG.error('UI error',exc_info=(typ,value,tb))
         self.stop()
+        if '--smoke-test' in sys.argv:
+            import traceback
+            traceback.print_exception(typ,value,tb)
+            if sys.stderr:sys.stderr.flush()
+            os._exit(1)
         messagebox.showerror('오류','작업을 중지했습니다. 기록 폴더의 로그 파일.log를 확인하세요.\n'+str(value),parent=self.root)
 
     def close(self):

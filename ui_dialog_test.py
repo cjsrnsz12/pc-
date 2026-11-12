@@ -22,7 +22,12 @@ def exercise_update_dialogs(app,report_path):
         assert not installed.primary.winfo_ismapped() and not installed.file_button.winfo_ismapped()
         assert not installed.footer.winfo_ismapped() and not installed.close_button.winfo_ismapped()
         assert installed.notes.winfo_ismapped()
-        assert installed.notes.tag_ranges('improvement') and installed.notes.tag_ranges('fix')
+        # Design-only releases need not invent a bug-fix section.
+        from startup_notes import installed_release
+        from app import BASE,VERSION
+        changes=installed_release(BASE/'release_notes.md',VERSION)['changes']
+        for kind,items in changes.items():
+            assert bool(installed.notes.tag_ranges(kind))==bool(items)
         assert not app.show_installed_changes(notice_state)
         installed.close();root.update()
         assert not app.show_installed_changes(notice_state)

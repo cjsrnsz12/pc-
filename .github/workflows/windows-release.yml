@@ -22,7 +22,7 @@ jobs:
         run: |
           python -m compileall -q .
           python -m pytest -q
-          python app.py --smoke-test --report "$env:RUNNER_TEMP/abyss-source-smoke.json"
+          python -u -c "import runpy,faulthandler; faulthandler.dump_traceback_later(45,exit=True); runpy.run_path('app.py',run_name='__main__')" --smoke-test --report "$env:RUNNER_TEMP/abyss-source-smoke.json"
       - name: Build no-console EXE
         run: python build_windows.py
       - name: Validate GUI executable
