@@ -3,7 +3,7 @@ if __name__=='__main__' and '--apply-update' in sys.argv:
     from installer import apply_plan
     raise SystemExit(apply_plan(sys.argv[sys.argv.index('--apply-update')+1]))
 
-"""Abyss Helper desktop application (Windows; packaged with --windowed)."""
+"""Nyacro desktop application (Windows; packaged with --windowed)."""
 if __name__=='__main__' and '--test-update-owner' in sys.argv:
     from installer import integration_owner
     integration_owner(sys.argv[sys.argv.index('--test-update-owner')+1])
@@ -64,6 +64,8 @@ if not (DATA/LOG_FILENAME).exists() and (DATA/'app.log').is_file():
 _handler = DailyRetentionHandler(DATA)
 _handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
 LOG.addHandler(_handler)
+from branding import APP_NAME,APP_TITLE
+
 BG, PANEL, TEXT, MUTED, ACCENT = '#0c1220','#162136','#edf2ff','#9caccc','#51dfb0'
 
 
@@ -98,7 +100,7 @@ class App:
             self.settings = json.loads(self.settings_path.read_text(encoding='utf-8'))
         except (ValueError,OSError):
             self.settings = {}
-        root.title('어비스 헬퍼 · PC')
+        root.title(APP_TITLE)
         try:
             _,work=self.win.monitor_info(self.win.u.GetAncestor(root.winfo_id(),2))
         except Exception:work=(0,0,root.winfo_screenwidth(),root.winfo_screenheight())
@@ -130,11 +132,14 @@ class App:
         s.theme_use('clam')
         s.configure('.',font=('맑은 고딕',10),background=BG,foreground=TEXT)
         s.configure('TFrame',background=BG)
-        s.configure('Card.TFrame',background=PANEL,relief='solid',borderwidth=1,bordercolor='#304565',lightcolor='#243750',darkcolor='#152238')
+        s.configure('Card.TFrame',background=PANEL,relief='solid',borderwidth=1,bordercolor='#2d405b',lightcolor='#2d405b',darkcolor='#2d405b')
+        s.configure('Section.Card.TLabel',background=PANEL,foreground='#cad5ed',font=('맑은 고딕',10,'bold'))
+        s.configure('Muted.Card.TLabel',background=PANEL,foreground=MUTED,font=('맑은 고딕',9))
         s.configure('TLabel',background=BG,foreground=TEXT)
         s.configure('Muted.TLabel',foreground=MUTED)
         s.configure('Title.TLabel',font=('맑은 고딕',24,'bold'))
         s.configure('Card.TLabel',background=PANEL)
+        s.configure('Surface.TFrame',background=PANEL,borderwidth=0,relief='flat')
         s.configure('Big.Card.TLabel',background=PANEL,font=('맑은 고딕',16,'bold'),foreground=ACCENT)
         s.configure('TButton',padding=(13,9),background='#263550',foreground=TEXT,borderwidth=0)
         s.map('TButton',background=[('disabled','#172239'),('pressed','#30435f'),('active','#354b6e')],foreground=[('disabled','#8190aa'),('!disabled',TEXT)],bordercolor=[('!disabled','#263550')],lightcolor=[('!disabled','#263550')],darkcolor=[('!disabled','#263550')])
@@ -154,6 +159,7 @@ class App:
 
     def build(self):
         self.footer=ttk.Frame(self.root,padding=(24,10,24,14));self.footer.pack(side='bottom',fill='x')
+        ttk.Separator(self.footer).pack(fill='x',pady=(0,10))
         content=ttk.Frame(self.root);content.pack(fill='both',expand=True)
         self.page_canvas=tk.Canvas(content,bg=BG,highlightthickness=0,bd=0)
         scrollbar=RoundScrollbar(content,command=self.page_canvas.yview)
@@ -164,29 +170,33 @@ class App:
         page.bind('<Configure>',lambda _:self.page_canvas.configure(scrollregion=self.page_canvas.bbox('all')))
         self.page_canvas.bind('<Configure>',lambda e:self.page_canvas.itemconfigure(window,width=e.width))
         self.root.bind('<MouseWheel>',self.scroll_page,add='+')
-        self.header=LauncherHeader(page,VERSION);self.header.pack(fill='x',pady=(0,18))
-        card=ttk.Frame(page,style='Card.TFrame',padding=18);card.pack(fill='x')
-        ttk.Label(card,text='●  CURRENT STATUS  /  현재 상태',style='Card.TLabel').pack(anchor='w')
+        self.header=LauncherHeader(page,VERSION);self.header.pack(fill='x',pady=(0,14))
+        card=ttk.Frame(page,style='Card.TFrame',padding=14);card.pack(fill='x')
+        ttk.Label(card,text='●  LIVE STATUS  /  현재 상태',style='Muted.Card.TLabel').pack(anchor='w')
         self.status=tk.StringVar(value='시작 대기')
-        ttk.Label(card,textvariable=self.status,style='Big.Card.TLabel').pack(anchor='w',pady=(6,2))
+        ttk.Label(card,textvariable=self.status,style='Big.Card.TLabel').pack(anchor='w',pady=(4,2))
         self.detail=tk.StringVar(value='게임 화면 기준 800 × 1000  ·  정지 확인 4초')
-        ttk.Label(card,textvariable=self.detail,style='Card.TLabel',wraplength=620).pack(anchor='w')
-        ttk.Label(page,text='게임 창',font=('맑은 고딕',11,'bold')).pack(anchor='w',pady=(18,7))
-        row=ttk.Frame(page);row.pack(fill='x')
+        ttk.Label(card,textvariable=self.detail,style='Muted.Card.TLabel',wraplength=620).pack(anchor='w')
+        connection=ttk.Frame(page,style='Card.TFrame',padding=12);connection.pack(fill='x',pady=(12,0))
+        ttk.Label(connection,text='01  게임 연결',style='Section.Card.TLabel').pack(anchor='w',pady=(0,6))
+        row=ttk.Frame(connection,style='Surface.TFrame');row.pack(fill='x')
         self.window_choice=tk.StringVar()
         self.window_box=ttk.Combobox(row,textvariable=self.window_choice,state='readonly');self.window_box.pack(side='left',fill='x',expand=True)
         self.refresh_button=ttk.Button(row,text='↻ 새로고침',command=self.refresh);self.refresh_button.pack(side='left',padx=(8,0))
         self.resize_button=ttk.Button(row,text='▣ 게임 창 자동 맞추기',command=self.resize);self.resize_button.pack(side='left',padx=(8,0))
-        destination_section=ttk.Frame(page);destination_section.pack(fill='x',pady=(15,8))
-        ttk.Label(destination_section,text='콘텐츠').pack(anchor='w',pady=(0,5))
+        destination_section=ttk.Frame(page,style='Card.TFrame',padding=12);destination_section.pack(fill='x',pady=(12,12))
+        ttk.Label(destination_section,text='02  플레이 설정',style='Section.Card.TLabel').pack(anchor='w',pady=(0,8))
+        selectors=ttk.Frame(destination_section,style='Surface.TFrame');selectors.pack(fill='x')
+        selectors.columnconfigure(0,weight=2,uniform='selector');selectors.columnconfigure(1,weight=3,uniform='selector')
+        ttk.Label(selectors,text='콘텐츠',style='Card.TLabel').grid(row=0,column=0,sticky='w',pady=(0,5))
         self.content=tk.StringVar(value=self.settings.get('content','어비스'))
         if self.content.get() not in CONTENT_TYPES:self.content.set('어비스')
-        self.content_box=SmoothChoice(destination_section,textvariable=self.content,values=CONTENT_TYPES);self.content_box.pack(fill='x')
-        self.content_hint=ttk.Label(destination_section,text='레이드 · 보상 확인·배 복귀·재출항 반복',foreground='#ffc454',padding=(0,12),wraplength=650)
-        options=self.destination_options=ttk.Frame(destination_section);options.pack(fill='x',pady=(12,0))
+        self.content_box=SmoothChoice(selectors,textvariable=self.content,values=CONTENT_TYPES);self.content_box.grid(row=1,column=0,sticky='ew',padx=(0,6))
+        self.content_hint=ttk.Label(destination_section,text='레이드 · 보상 확인·배 복귀·재출항 반복',foreground='#c6b5ff',style='Card.TLabel',padding=(0,8),wraplength=650)
+        options=self.destination_options=ttk.Frame(destination_section,style='Surface.TFrame');options.pack(fill='x',pady=(8,0))
         options.columnconfigure(0,weight=1);options.columnconfigure(1,weight=1)
-        ttk.Label(options,text='목적지').grid(row=0,column=0,sticky='w',pady=(0,5))
-        ttk.Label(options,text='난이도').grid(row=0,column=1,sticky='w',padx=(12,0),pady=(0,5))
+        ttk.Label(options,text='목적지',style='Card.TLabel').grid(row=0,column=0,sticky='w',pady=(0,5))
+        ttk.Label(options,text='난이도',style='Card.TLabel').grid(row=0,column=1,sticky='w',padx=(12,0),pady=(0,5))
         self.dungeon=tk.StringVar(value=self.settings.get('abyss_dungeon',self.settings.get('dungeon','허상의 정박지')))
         if self.dungeon.get() not in DUNGEONS:self.dungeon.set('허상의 정박지')
         self.difficulty=tk.StringVar(value=self.settings.get('abyss_difficulty',self.settings.get('difficulty','매우 어려움')))
@@ -199,25 +209,26 @@ class App:
         if self.play_mode.get() not in PLAY_MODES:self.play_mode.set(PLAY_MODES[0])
         self.play_mode.trace_add('write',self.play_mode_changed)
         self.repeat.set(True)
-        ttk.Label(page,text='플레이 모드').pack(anchor='w',pady=(6,4))
-        self.mode_box=SmoothChoice(page,textvariable=self.play_mode,values=PLAY_MODES);self.mode_box.pack(fill='x',pady=(0,4))
-        self.mode_hint=tk.StringVar(value='솔로: 다시 하기 · 파티: 다른 던전 가기 → 목적지 선택 → 입장하기')
-        ttk.Label(page,textvariable=self.mode_hint,style='Muted.TLabel').pack(anchor='w')
+        ttk.Label(selectors,text='플레이 모드',style='Card.TLabel').grid(row=0,column=1,sticky='w',padx=(6,0),pady=(0,5))
+        self.mode_box=SmoothChoice(selectors,textvariable=self.play_mode,values=PLAY_MODES);self.mode_box.grid(row=1,column=1,sticky='ew',padx=(6,0))
+        self.mode_hint=tk.StringVar(value='솔로 모드 · 보상 화면에서 다시 하기')
+        ttk.Label(destination_section,textvariable=self.mode_hint,style='Muted.Card.TLabel',wraplength=650).pack(anchor='w',pady=(6,4))
         self.entry_hint=tk.StringVar(value='입장 조건: 함께하기 · 선택한 난이도 · 우연한 만남 ON')
-        self.food_check=SmoothCheckbutton(page,text='음식 아이콘이 나타나면 한 번 클릭',variable=self.food);self.food_check.pack(anchor='w')
-        ttk.Label(page,textvariable=self.entry_hint,style='Muted.TLabel').pack(anchor='w',pady=(4,10))
-        controls=ttk.Frame(page);controls.pack(fill='x',pady=(0,10))
+        self.food_check=SmoothCheckbutton(destination_section,text='음식 아이콘이 나타나면 한 번 클릭',variable=self.food);self.food_check.pack(anchor='w')
+        ttk.Label(destination_section,textvariable=self.entry_hint,style='Muted.Card.TLabel',wraplength=650).pack(anchor='w',pady=(6,0))
+        controls=ttk.Frame(self.footer);controls.pack(fill='x',pady=(0,4))
         self.start_button=ttk.Button(controls,text='▶  시작   F8',style='Start.TButton',command=self.start);self.start_button.pack(side='left',fill='x',expand=True)
         self.stop_button=ttk.Button(controls,text='■  중지   F9',style='Stop.TButton',command=self.stop,state='disabled');self.stop_button.pack(side='left',fill='x',expand=True,padx=(10,0))
-        ttk.Label(page,text='시작 후 게임 창을 클릭하세요. 다른 창을 사용하면 자동으로 대기합니다.',style='Muted.TLabel',wraplength=650).pack(anchor='w',pady=(0,12))
-        log_header=ttk.Frame(page);log_header.pack(fill='x')
-        ttk.Label(log_header,text='✦ 진행 기록',font=('맑은 고딕',11,'bold')).pack(side='left')
+        ttk.Label(self.footer,text='F8 시작  ·  F9 중지  |  게임 창이 앞에 있을 때만 동작해요.',style='Muted.TLabel',wraplength=650).pack(anchor='w',pady=(3,6))
+        log_card=ttk.Frame(page,style='Card.TFrame',padding=14);log_card.pack(fill='both',expand=True)
+        log_header=ttk.Frame(log_card,style='Surface.TFrame');log_header.pack(fill='x')
+        ttk.Label(log_header,text='03  진행 기록',style='Section.Card.TLabel').pack(side='left')
         ttk.Button(log_header,text='로그 파일 저장',command=self.export_logs).pack(side='right',padx=(8,0))
         ttk.Button(log_header,text='기록 폴더',command=lambda:os.startfile(DATA)).pack(side='right')
-        self.log_box=tk.Text(page,height=8,background='#09101b',foreground='#b9cbea',font=('맑은 고딕',9),relief='flat',padx=12,pady=10,wrap='word',state='disabled')
-        self.log_box.pack(fill='both',expand=True,pady=(8,12))
-        bottom=self.footer
-        self.update_text=tk.StringVar(value='GitHub 업데이트 안내 연결됨')
+        self.log_box=tk.Text(log_card,height=6,background='#101929',foreground='#b8d2d5',font=('맑은 고딕',9),relief='flat',padx=12,pady=10,wrap='word',state='disabled')
+        self.log_box.pack(fill='both',expand=True,pady=(10,0))
+        bottom=ttk.Frame(self.footer);bottom.pack(fill='x')
+        self.update_text=tk.StringVar(value=APP_NAME+' v'+VERSION)
         ttk.Label(bottom,textvariable=self.update_text,style='Muted.TLabel').pack(side='left')
         self.update_button=ttk.Button(bottom,text='업데이트 소식',command=self.open_update_notice);self.update_button.pack(side='right')
         ttk.Button(bottom,text='권한 확인',command=self.check_permissions).pack(side='right',padx=(0,8))
@@ -273,7 +284,7 @@ class App:
         self.difficulty_box.values=RAID_DIFFICULTIES if raid else DIFFICULTIES
         destination,difficulty=self._content_values[self._active_content]
         self.dungeon.set(destination);self.difficulty.set(difficulty)
-        self.destination_options.pack(fill='x',pady=(12,0))
+        self.destination_options.pack(fill='x',pady=(8,0))
         if raid:
             self.content_hint.configure(text='레이드 · 보상 확인·배 복귀·재출항 반복')
             self.content_hint.pack(fill='x')
@@ -464,7 +475,7 @@ class App:
         raid=self.content.get()=='레이드'
         self.repeat.set(True)
         if hasattr(self,'mode_hint'):
-            self.mode_hint.set('레이드: 혼자하기 · 배 출항 · 장면 넘기기 · 빵 아이콘 확인 · 토벌 후 배 복귀·재출항' if raid else '파티: 다른 던전 가기 → 목적지 선택 → 입장하기' if party else '솔로: 다시 하기 · 파티: 다른 던전 가기 → 목적지 선택 → 입장하기')
+            self.mode_hint.set('레이드: 혼자하기 · 배 출항 · 장면 넘기기 · 빵 아이콘 확인 · 토벌 후 배 복귀·재출항' if raid else '파티 모드 · 다른 던전 가기 → 목적지 선택 → 입장하기' if party else '솔로 모드 · 보상 화면에서 다시 하기')
             self.status.set('레이드 시작 대기' if raid else '파티 플레이 시작 대기' if party else '시작 대기')
             self.start_button.configure(state='disabled' if self.running or self.installing else 'normal')
 

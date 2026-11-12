@@ -4,24 +4,34 @@ import time
 import tkinter as tk
 from PIL import Image,ImageDraw,ImageTk,ImageFilter
 from ui_controls import blend
+from branding import APP_NAME,TAGLINE
 
 
 def app_icon(size=256):
     scale=4;s=size*scale
     image=Image.new('RGBA',(s,s),(0,0,0,0));d=ImageDraw.Draw(image)
-    d.rounded_rectangle((1,1,s-2,s-2),radius=s*.23,fill='#111a32',outline='#745bd0',width=max(2,round(s*.018)))
+    d.rounded_rectangle((1,1,s-2,s-2),radius=s*.25,fill='#131d35',outline='#8b80cf',width=max(2,round(s*.018)))
     glow=Image.new('RGBA',(s,s));g=ImageDraw.Draw(glow)
-    g.ellipse((s*.14,s*.14,s*.86,s*.86),fill=(87,79,212,160));glow=glow.filter(ImageFilter.GaussianBlur(s*.09));image=Image.alpha_composite(image,glow);d=ImageDraw.Draw(image)
-    diamond=[(s*.50,s*.15),(s*.84,s*.50),(s*.50,s*.85),(s*.16,s*.50)]
-    d.line(diamond+[diamond[0]],fill='#72edcb',width=max(2,round(s*.025)),joint='curve')
-    d.line([(s*.32,s*.65),(s*.50,s*.31),(s*.68,s*.65)],fill='#f5f6ff',width=max(2,round(s*.055)),joint='curve')
-    d.line([(s*.40,s*.54),(s*.60,s*.54)],fill='#ac92ff',width=max(2,round(s*.04)))
+    g.ellipse((s*.10,s*.08,s*.90,s*.94),fill=(106,91,208,145))
+    image=Image.alpha_composite(image,glow.filter(ImageFilter.GaussianBlur(s*.09)));d=ImageDraw.Draw(image)
+    # Cat silhouette stays legible at taskbar size. Shapes are antialiased below.
+    d.polygon([(s*.22,s*.45),(s*.24,s*.20),(s*.43,s*.34)],fill='#b6a4ee')
+    d.polygon([(s*.57,s*.34),(s*.76,s*.20),(s*.78,s*.45)],fill='#b6a4ee')
+    d.ellipse((s*.21,s*.30,s*.79,s*.80),fill='#b6a4ee')
+    d.polygon([(s*.27,s*.35),(s*.28,s*.26),(s*.36,s*.34)],fill='#526588')
+    d.polygon([(s*.64,s*.34),(s*.72,s*.26),(s*.73,s*.35)],fill='#526588')
+    for x in (.39,.61):d.ellipse((s*(x-.025),s*.49,s*(x+.025),s*.565),fill='#18253e')
+    d.polygon([(s*.46,s*.59),(s*.54,s*.59),(s*.50,s*.64)],fill='#f7efff')
+    d.arc((s*.40,s*.58,s*.50,s*.69),0,85,fill='#18253e',width=max(2,round(s*.012)))
+    d.arc((s*.50,s*.58,s*.60,s*.69),95,180,fill='#18253e',width=max(2,round(s*.012)))
+    d.ellipse((s*.68,s*.68,s*.89,s*.89),fill='#72e5c2',outline='#13223b',width=max(2,round(s*.014)))
+    d.polygon([(s*.75,s*.73),(s*.75,s*.83),(s*.83,s*.78)],fill='#16352e')
     return image.resize((size,size),Image.Resampling.LANCZOS)
 
 
 class LauncherHeader(tk.Canvas):
     def __init__(self,parent,version):
-        super().__init__(parent,height=128,bg='#11182b',bd=0,highlightthickness=0)
+        super().__init__(parent,height=116,bg='#11182b',bd=0,highlightthickness=0)
         self.version=version;self._resize_job=None;self._tick_job=None;self._phase=time.monotonic();self._width=700
         self.bind('<Configure>',self.schedule);self.bind('<Destroy>',self.destroyed)
         self._tick_job=self.after(40,self.animate)
@@ -31,25 +41,24 @@ class LauncherHeader(tk.Canvas):
         self._width=max(400,event.width);self._resize_job=self.after(50,self.paint)
 
     def paint(self):
-        self._resize_job=None;self._last_offset=0.;self.delete('all');w=self._width;h=128
+        self._resize_job=None;self._last_offset=0.;self.delete('all');w=self._width;h=116
         image=Image.new('RGB',(w,h));d=ImageDraw.Draw(image)
         for x in range(w):
             t=x/max(1,w-1)
-            color=blend('#2c2153','#102b3a',t)
+            color=blend('#282342','#122c37',t)
             d.line((x,0,x,h),fill=color)
         d.line((0,h-2,w,h-2),fill='#5b51a5',width=2)
         for x in range(w-230,w+60,52):d.line((x,0,x-100,h),fill='#343255',width=1)
         self._background=ImageTk.PhotoImage(image,master=self)
         self.create_image(0,0,anchor='nw',image=self._background)
-        self.create_text(22,22,anchor='w',text='MABINOGI MOBILE  /  AUTOMATION',font=('맑은 고딕',8,'bold'),fill='#ac9fea')
-        self.create_text(20,57,anchor='w',text='어비스 헬퍼',font=('맑은 고딕',25,'bold'),fill='#f3f6ff')
-        self.create_text(23,96,anchor='w',text='화면을 읽고, 다음 모험으로.',font=('맑은 고딕',10),fill='#bac8e1')
-        self.create_rectangle(w-154,87,w-20,112,fill='#1f334d',outline='#42628b')
-        self.create_text(w-87,99,text='PC  •  v'+self.version,font=('맑은 고딕',9,'bold'),fill='#8ef3d4')
+        self.create_text(24,19,anchor='w',text='NYACRO  /  PLAY COMPANION',font=('맑은 고딕',8,'bold'),fill='#b4a6e4')
+        self.create_text(22,53,anchor='w',text=APP_NAME,font=('맑은 고딕',28,'bold'),fill='#f3f6ff')
+        self.create_text(24,91,anchor='w',text=TAGLINE,font=('맑은 고딕',10),fill='#bdcbe1')
+        self.create_rectangle(w-154,78,w-20,103,fill='#1f334d',outline='#42628b')
+        self.create_text(w-87,91,text='PC  •  v'+self.version,font=('맑은 고딕',9,'bold'),fill='#8ef3d4')
         self._orb_x=w-86
-        self.create_oval(w-124,10,w-48,86,outline='#474073',width=1,tags='halo')
-        self.create_polygon(w-86,17,w-56,47,w-86,77,w-116,47,fill='#27355b',outline='#74e8cd',width=2,tags='orb')
-        self.create_text(w-86,47,text='✦',font=('Segoe UI Symbol',25),fill='#c0acff',tags='orb')
+        self._cat=ImageTk.PhotoImage(app_icon(64),master=self)
+        self.create_image(w-86,37,image=self._cat,tags='orb')
         self._stars=[]
         for i in range(5):
             x=w-225+i*43;y=18+(i*19)%52

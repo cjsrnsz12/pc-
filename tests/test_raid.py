@@ -201,7 +201,7 @@ def test_actual_boss_defeat_skip_after_intro_is_independent_and_once(size):
     action=c.step(ending,2)
     assert action.key=='raid_defeat_skip' and action.point==ending.points['skip']
     assert c.defeat_skipped and c.phase=='aftermath' and c.state==State.CLEAR
-    for now in (3,10,30):assert c.step(ending,now) is None
+    for now in (2.7,3,4):assert c.step(ending,now) is None
     assert c.step(Observation('field',{'menu':(770,60)},still=True),31) is None
     assert c.step(inside,32) is None  # Never re-enter battle/menu automation after the ending.
 
@@ -496,3 +496,15 @@ def test_user_supplied_kabrak_clear_text_proves_combat_without_hp_or_revive_coun
     c.step(o,20)
     assert c.state==State.COMBAT and c.phase=='inside' and c.entered_at is None
     assert c.step(Observation(),300) is None and c.state==State.COMBAT
+
+
+def test_failed_defeat_skip_retries_visible_button_then_stops_or_confirms_reward():
+    v=RaidVision(ROOT/'assets.json');c=RaidController()
+    c.step(v.observe(frame('inside')),0)
+    end=v.observe(frame('defeat'))
+    for t in (1,3.5,6):assert c.step(end,t).key=='raid_defeat_skip'
+    assert c.step(end,8.5) is None and c.state==State.BLOCKED
+    c=RaidController();c.step(v.observe(frame('inside')),0)
+    assert c.step(end,1).key=='raid_defeat_skip'
+    assert c.step(v.observe(frame('clear_reward')),2).key=='raid_reward_confirm'
+    assert c.state==State.REWARD

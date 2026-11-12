@@ -5,7 +5,7 @@ import re
 BLOCKED = {'chrome.exe','msedge.exe','firefox.exe','brave.exe','opera.exe','iexplore.exe',
            'explorer.exe','notepad.exe','cmd.exe','powershell.exe','pwsh.exe',
            'windowsterminal.exe','applicationframehost.exe','nexonlauncher.exe',
-           'nexonplug.exe','ngm.exe','abysshelper.exe','python.exe','pythonw.exe'}
+           'nexonplug.exe','ngm.exe','abysshelper.exe','nyacro.exe','냐크로.exe','python.exe','pythonw.exe'}
 
 
 def is_game_window(title, executable):

@@ -96,3 +96,27 @@ def test_enter_button_no_response_is_retried_with_conditions_rechecked():
     assert c.step(o,2.5).key=='enter'
     assert c.step(O('matching'),3) is None
     assert c.state==State.ENTERING
+
+
+def test_solo_failed_entry_can_retry_after_unknown_gap_and_keeps_three_attempt_limit():
+    c=Controller();o=O('detail',{'enter':(400,950)},'허상의 정박지',True,'매우 어려움',True)
+    assert c.step(o,0).key=='enter'
+    for lost,now in [(1,2.5),(3.5,5)]:
+        assert c.step(O(),lost) is None
+        assert c.step(o,now).key=='enter'
+    c.step(O(),6)
+    assert c.step(o,7.5) is None and c.state==State.BLOCKED
+
+
+def test_entry_timeout_is_not_hidden_by_combat_latch_on_unknown_frame():
+    for screen in ['matching','loading']:
+        c=Controller();c.step(O(screen),0)
+        assert c.combat_latched
+        assert c.step(O(),241) is None and c.state==State.BLOCKED
+
+
+def test_confirmed_combat_releases_pending_entry_and_has_no_loading_timeout():
+    c=Controller();c.step(O('detail',{'enter':(400,950)},'허상의 정박지',True,'매우 어려움',True),0)
+    c.step(O('combat'),1)
+    assert not c.entry_requested and c.entered_at is None
+    assert c.step(O(),300) is None and c.state==State.COMBAT

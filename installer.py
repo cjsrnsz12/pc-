@@ -1,5 +1,6 @@
 """Console-free, out-of-process replacement of the running Windows executable."""
 import ctypes
+from branding import APP_NAME
 import hashlib
 import json
 import os
@@ -168,7 +169,7 @@ def apply_plan(path):
         if plan:
             Path(plan['status']).write_text(json.dumps({'result':'failed','message':message},ensure_ascii=False),encoding='utf-8')
         if sys.platform=='win32' and not (plan and plan.get('test_exit')):
-            ctypes.windll.user32.MessageBoxW(None,message,'어비스 헬퍼 업데이트',0x10)
+            ctypes.windll.user32.MessageBoxW(None,message,APP_NAME+' 업데이트',0x10)
             if old_exited and plan and Path(plan['target']).is_file() and sha256(plan['target'])==plan['old_sha256']:
                 subprocess.Popen([plan['target']],creationflags=NO_WINDOW,close_fds=True)
         return 1

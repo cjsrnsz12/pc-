@@ -11,6 +11,8 @@ from ui_controls import BG,SmoothCheckbutton
 def exercise_style_controls(app,report_path):
     import mss
     root=app.root;root.deiconify();root.update()
+    from branding import APP_NAME,APP_TITLE
+    assert root.title()==APP_TITLE
     def settle(seconds=.23):
         end=time.monotonic()+seconds
         while time.monotonic()<end:root.update();time.sleep(.01)
@@ -18,6 +20,7 @@ def exercise_style_controls(app,report_path):
     assert isinstance(check,SmoothCheckbutton)
     original=bool(app.food.get())
     app.food.set(False);settle()
+    assert APP_NAME in [app.header.itemcget(i,'text') for i in app.header.find_all() if app.header.type(i)=='text']
     check.invoke();settle()
     assert app.food.get() and check.selected>.99
     check.event_generate('<Enter>');settle()
@@ -76,6 +79,10 @@ def exercise_style_controls(app,report_path):
     hwnd=app.win.u.GetAncestor(root.winfo_id(),2);rect=W.RECT();origin=W.POINT()
     app.win.u.GetClientRect(hwnd,C.byref(rect));app.win.u.ClientToScreen(hwnd,C.byref(origin))
     assert app.footer.winfo_rooty()+app.footer.winfo_height()<=origin.y+rect.bottom+1
+    for button in (app.start_button,app.stop_button):
+        assert button.winfo_viewable()
+        assert app.footer.winfo_rooty()<=button.winfo_rooty()
+        assert button.winfo_rooty()+button.winfo_height()<=origin.y+rect.bottom
     screenshot=Path(report_path).with_suffix('.png')
     with mss.mss() as capture:
         shot=capture.grab({'left':origin.x,'top':origin.y,'width':rect.right,'height':rect.bottom})

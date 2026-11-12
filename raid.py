@@ -249,15 +249,16 @@ class RaidController(Controller):
         if self.phase=='post_popup_field' and o.screen=='field':
             self.state=State.IDLE;self.reason='일반 지역 화면 · 후속 진행 대기'
             return None
-        if self.phase=='aftermath':
-            self.state=State.CLEAR;self.reason='보스 처치 장면 넘김 완료 · 이후 결과 화면 처리 대기'
-            return None
-        if o.screen=='raid_cutscene' and self.phase=='inside':
+        if o.screen=='raid_cutscene' and (self.phase=='inside' or (self.phase=='aftermath' and self.defeat_skipped)):
             self.state=State.CLEAR;self.reason='레이드 보스 처치 장면 · 장면 넘기기 확인'
-            action=self.emit('raid_defeat_skip',o.points.get('skip'),'보스 처치 장면 넘기기 한 번 클릭',now)
+            action=self.emit('raid_defeat_skip',o.points.get('skip'),'보스 처치 장면 넘기기 · 현재 버튼 재확인 후 최대 3회 클릭',now)
             if action:
-                self.defeat_skipped=True;self.phase='aftermath';self.clear_seen_at=now
+                if not self.defeat_skipped:self.clear_seen_at=now
+                self.defeat_skipped=True;self.phase='aftermath'
             return action
+        if self.phase=='aftermath':
+            self.state=State.CLEAR;self.reason='보스 처치 장면 넘김 요청 완료 · 현재 결과 화면 확인 중'
+            return None
         if o.screen in ('raid_inside','combat'):
             self.phase='inside';self.entered_at=None;self.state=State.COMBAT
             self.combat_latched=True;self.still_since=None
