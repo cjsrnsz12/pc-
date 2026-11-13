@@ -1,7 +1,7 @@
 {
-  "version": "1.1.40",
-  "title": "완료 횟수 표시",
-  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.1.40",
-  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.1.40/AbyssHelper.exe",
-  "notes": "하단에 완료 판 수 표시 · 중지해도 유지 · 시작 버튼을 다시 누르면 0판부터 집계"
+  "version": "1.1.41",
+  "title": "실행 중 업데이트 알림 보류",
+  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.1.41",
+  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.1.41/AbyssHelper.exe",
+  "notes": "매크로 실행 중에는 업데이트 알림을 보류하고, 작업이 완전히 중지된 후 한 번만 표시합니다."
 }

@@ -16,7 +16,7 @@ def start_case(tmp_path,monkeypatch):
     case=SimpleNamespace(running=False,sizing_busy=False,installing=False,closing=False,
         play_mode=Variable(module.PLAY_MODES[0]),content=Variable('레이드'),dungeon=Variable('카브락'),
         difficulty=Variable('입문'),completed_count=Variable('완료 5판'),status=Variable('대기'),root=None,stop_event=threading.Event(),worker=None,
-        settings_path=tmp_path/'settings.json',settings={},
+        settings_path=tmp_path/'settings.json',settings={},pending_update=None,pending_installed_notice=None,
         refresh=lambda:calls.append('refresh'),selected=lambda:123,
         win=SimpleNamespace(require_control_permission=lambda hwnd:calls.append('permission'),rect=lambda hwnd:(0,0,800,1000)),
         collect_settings=lambda:{'content':'레이드','dungeon':'카브락','difficulty':'입문'},

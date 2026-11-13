@@ -92,6 +92,8 @@ class App:
         self.install_owner = None
         self.latest_release = None
         self.update_manual_requested = False
+        self.pending_update = None
+        self.pending_installed_notice = None
         self.permission_dialog = None
         self.installing = False
         self.previous_keys = (False,False)
@@ -638,6 +640,8 @@ class App:
         finally:self.events.put(('stopped',None))
 
     def open_update_notice(self):
+        if self.running:
+            self.update_check(True);return
         if self.update_notice and not self.update_notice.closed and self.update_notice.phase in ('downloading','preparing','installing'):
             self.update_notice.show();return
         self.show_update_prompt(None)
@@ -647,6 +651,9 @@ class App:
         if self.closing:return False
         path=state_path if state_path is not None else DATA/'release-notice.json'
         if not needs_notice(path,VERSION):return False
+        if self.running:
+            self.pending_installed_notice=(state_path,)
+            return False
         try:
             release=installed_release(BASE/'release_notes.md',VERSION)
             self.installed_notice=UpdateNotice(self,release)
@@ -659,7 +666,7 @@ class App:
 
     def update_check(self,manual=False):
         self.update_manual_requested=self.update_manual_requested or manual
-        if manual:
+        if manual and not self.running:
             self.show_update_prompt(None)
             self.update_prompt.set_loading()
         if self.update_busy:
@@ -673,12 +680,20 @@ class App:
         if not manual:self.root.after(5*60*1000,self.update_check)
 
     def show_update_prompt(self,result=None):
+        if self.running:
+            if result:self.pending_update=(result,None,True)
+            self.update_text.set('업데이트 알림 보류 · 매크로 중지 후 표시')
+            return
         if self.update_prompt and not self.update_prompt.closed:
             if result:self.update_prompt.set_release(result)
             self.update_prompt.show();return
         self.update_prompt=UpdatePrompt(self,result)
 
     def update_from_prompt(self,release):
+        if self.running:
+            self.pending_update=(release,None,True)
+            self.update_text.set('업데이트 알림 보류 · 매크로 중지 후 표시')
+            return False
         self.show_update(release)
         self.update_notice.begin()
         return self.update_notice.phase in ('downloading','preparing','installing')
@@ -688,6 +703,10 @@ class App:
         return DATA
 
     def show_update(self,result=None):
+        if self.running:
+            if result:self.pending_update=(result,None,True)
+            self.update_text.set('업데이트 알림 보류 · 매크로 중지 후 표시')
+            return
         if self.update_notice and not self.update_notice.closed:
             if result:self.update_notice.set_release(result)
             self.update_notice.show();return
@@ -707,9 +726,23 @@ class App:
             elif kind=='stopped':
                 self.running=False;self.lock_controls(False)
                 if self.status.get()!='확인 필요':self.status.set('중지됨')
-            elif kind=='update':
-                self.update_busy=False;result,error=value
-                manual=self.update_manual_requested;self.update_manual_requested=False
+                pending=self.pending_update;self.pending_update=None
+                if pending:self.events.put(('deferred_update',pending))
+                installed=self.pending_installed_notice;self.pending_installed_notice=None
+                if installed is not None and pending is None:self.show_installed_changes(*installed)
+            elif kind in ('update','deferred_update'):
+                if kind=='update':
+                    self.update_busy=False;result,error=value
+                    manual=self.update_manual_requested;self.update_manual_requested=False
+                else:result,error,manual=value
+                if self.running:
+                    if result:self.latest_release=result
+                    newer=result is not None and result.get('is_new',True)
+                    if manual or (newer and result['version'] not in self.seen_updates):
+                        # A later failed check must not discard an available release.
+                        if result or self.pending_update is None:self.pending_update=(result,error,manual)
+                        self.update_text.set('업데이트 알림 보류 · 매크로 중지 후 표시')
+                    continue
                 notice=self.update_notice if self.update_notice and not self.update_notice.closed else None
                 prompt=self.update_prompt if self.update_prompt and not self.update_prompt.closed else None
                 if error:
