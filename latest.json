@@ -1,7 +1,7 @@
 {
-  "version": "1.1.39",
-  "title": "전멸 후 자동 재시작",
-  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.1.39",
-  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.1.39/AbyssHelper.exe",
-  "notes": "전멸 시 재시작 대기중으로 표시하고, 퇴장 확인 후 처음 진입 순서로 다시 시작합니다."
+  "version": "1.1.40",
+  "title": "완료 횟수 표시",
+  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.1.40",
+  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.1.40/AbyssHelper.exe",
+  "notes": "하단에 완료 판 수 표시 · 중지해도 유지 · 시작 버튼을 다시 누르면 0판부터 집계"
 }

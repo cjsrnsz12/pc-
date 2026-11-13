@@ -16,6 +16,11 @@ def exercise_style_controls(app,report_path):
     def settle(seconds=.23):
         end=time.monotonic()+seconds
         while time.monotonic()<end:root.update();time.sleep(.01)
+    assert app.count_label.winfo_viewable()
+    assert app.completed_count.get()=='완료 0판'
+    app.completed_count.set('완료 12판');app.stop()
+    assert app.completed_count.get()=='완료 12판'
+    app.stop_event.clear();app.completed_count.set('완료 0판')
     check=app.food_check
     assert isinstance(check,SmoothCheckbutton)
     original=bool(app.food.get())
@@ -79,6 +84,8 @@ def exercise_style_controls(app,report_path):
     hwnd=app.win.u.GetAncestor(root.winfo_id(),2);rect=W.RECT();origin=W.POINT()
     app.win.u.GetClientRect(hwnd,C.byref(rect));app.win.u.ClientToScreen(hwnd,C.byref(origin))
     assert app.footer.winfo_rooty()+app.footer.winfo_height()<=origin.y+rect.bottom+1
+    assert app.footer.winfo_rooty()<=app.count_label.winfo_rooty()
+    assert app.count_label.winfo_rooty()+app.count_label.winfo_height()<=origin.y+rect.bottom
     for button in (app.start_button,app.stop_button):
         assert button.winfo_viewable()
         assert app.footer.winfo_rooty()<=button.winfo_rooty()

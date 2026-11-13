@@ -35,6 +35,7 @@ from PIL import Image, ImageTk
 from engine import Controller, Observation, State
 from raid import RaidController,RaidVision,RAID_DIFFICULTIES
 from recognition_timing import poll_interval, same_detection
+from run_count import RunCount
 from list_centering import ListCentering,RaidEntryCentering
 from capture_guard import CapturePause, within_desktop
 from window_sizing import supported_client
@@ -216,6 +217,11 @@ class App:
         self.entry_hint=tk.StringVar(value='입장 조건: 함께하기 · 선택한 난이도 · 우연한 만남 ON')
         self.food_check=SmoothCheckbutton(destination_section,text='음식 아이콘이 나타나면 한 번 클릭',variable=self.food);self.food_check.pack(anchor='w')
         ttk.Label(destination_section,textvariable=self.entry_hint,style='Muted.Card.TLabel',wraplength=650).pack(anchor='w',pady=(6,0))
+        count_row=ttk.Frame(self.footer);count_row.pack(fill='x',pady=(0,6))
+        ttk.Label(count_row,text='이번 실행 완료 횟수',style='Muted.TLabel').pack(side='left')
+        self.completed_count=tk.StringVar(value='완료 0판')
+        self.count_label=ttk.Label(count_row,textvariable=self.completed_count,foreground=ACCENT,font=('맑은 고딕',15,'bold'))
+        self.count_label.pack(side='right')
         controls=ttk.Frame(self.footer);controls.pack(fill='x',pady=(0,4))
         self.start_button=ttk.Button(controls,text='▶  시작   F8',style='Start.TButton',command=self.start);self.start_button.pack(side='left',fill='x',expand=True)
         self.stop_button=ttk.Button(controls,text='■  중지   F9',style='Stop.TButton',command=self.stop,state='disabled');self.stop_button.pack(side='left',fill='x',expand=True,padx=(10,0))
@@ -491,6 +497,7 @@ class App:
             self.show_operation_error('매크로 시작',e,locals().get('hwnd'));return
         self.settings=self.collect_settings()
         self.settings_path.write_text(json.dumps(self.settings,ensure_ascii=False,indent=2),encoding='utf-8')
+        self.completed_count.set('완료 0판')
         self.running=True;self.stop_event.clear();self.lock_controls(True)
         self.status.set('게임 창을 클릭하세요')
         self.log('시작: '+self.dungeon.get()+' / '+self.difficulty.get()+' / '+self.play_mode.get()+' — 게임 창이 앞에 있을 때만 인식·클릭합니다.')
@@ -506,6 +513,7 @@ class App:
             raid=config.get('content')=='레이드'
             detector=RaidVision(BASE/'assets.json') if raid else Vision(BASE/'assets.json')
             controller=RaidController(config['difficulty']) if raid else Controller(config['dungeon'],config['difficulty'],config['repeat'],party=config.get('play_mode')==PLAY_MODES[1])
+            run_count=RunCount()
             last_screen,streak,food_streak='',0,0
             previous_observation=None
             list_center=ListCentering();raid_center=RaidEntryCentering()
@@ -595,6 +603,9 @@ class App:
                     if controller.wipe_recoveries!=before_recoveries:
                         detector.stillness.reset();list_center=ListCentering();raid_center=RaidEntryCentering()
                         previous_observation=None;streak=0;food_streak=0;last_screen='';last_status=None
+                    if streak>=2 and run_count.observe(observation.screen,controller):
+                        self.events.put(('completed',run_count.total))
+                        self.events.put(('log',f'완료 횟수: {run_count.total}판'))
                     status=(controller.state.value,controller.reason or ('감지: '+{'wipe':'전멸 · 재시작 대기중','wipe_dialog':'던전 퇴장 · 재시작 대기중','unknown':'화면 확인 중','dead':'행동 불능·여기서 부활 확인','field':'일반 화면','combat':'전투','detail':'입장 설정','matching':'우연한 만남 대기','loading':'로딩','cutscene':'보스 연출','reward':'보상','mission':'협동 미션','clear':'던전 클리어','menu':'메뉴','list':'어비스 목록','raid_menu':'레이드 메뉴','raid_list':'카브락 목록','raid_detail':'레이드 설정','raid_travel':'레이드 지역 이동','raid_boat':'배 탑승·퀘스트 출항','raid_cutscene':'출항 장면','raid_inside':'카브락 입장·음식 확인','raid_weekend':'주말 레이드 퀘스트 보상','raid_reward':'카브락 처치 완료 보상','raid_return':'토벌 완료·우상단 나가기','raid_return_dialog':'출항선으로 이동 확인'}.get(observation.screen,observation.screen)))
                     if observation.screen=='field' and controller.state==State.IDLE:
                         status=(status[0],status[1]+' / '+observation.motion_note)
@@ -690,6 +701,7 @@ class App:
             except queue.Empty:break
             if kind=='log':self.log(value)
             elif kind=='status':self.status.set(value[0]);self.detail.set(value[1])
+            elif kind=='completed':self.completed_count.set(f'완료 {value}판')
             elif kind=='error':
                 error,hwnd=value;self.log(str(error));self.show_operation_error('게임 조작',error,hwnd)
             elif kind=='stopped':

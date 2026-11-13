@@ -125,9 +125,9 @@ class Controller:
             self.last_screen = o.screen
         if o.screen in ('matching','loading','combat','cutscene','clear','reward'):
             self.entry_requested=False;self.entry_last=-999.;self.entry_attempts=0
-        if self.party_stage is not None and o.screen in ('matching','loading','combat','cutscene'):
-            # The leader/server may advance before our detail/enter frame is seen.
-            # Actual progress overrides the stale party menu stage and its deadline.
+        if (self.party_stage is not None or self.reward_since is not None) and o.screen in ('matching','loading','combat','cutscene'):
+            # Confirm the next cycle once, even if matching/loading was missed.
+            # A party leader may also advance before our detail/enter frame.
             previous_stage=self.party_stage
             self.repeats+=int(self.reward_since is not None)
             self.reward_since=None;self.party_stage=None
