@@ -47,10 +47,17 @@ class Vision:
         # Separate text searches so 어려움 cannot match inside 매우 어려움2.
         for title, box in zip(DIFFICULTIES, DIFFICULTY_BOXES):
             self.data['diff_'+title]['roi'] = list(box)
+        for name in ('detail_harbor','detail_cave','detail_water'):
+            self.data[name]=dict(self.data[name],roi=(5,95,400,210))
         self.templates = {}
         for name, item in self.data.items():
             png = cv2.imdecode(np.frombuffer(base64.b64decode(item['png']), np.uint8), cv2.IMREAD_GRAYSCALE)
             self.templates[name] = [cv2.resize(png, None, fx=s, fy=s) for s in item['scales']]
+            if name in ('enter','together','encounter_label','detail_harbor','detail_cave','detail_water') or name.startswith('diff_'):
+                # Game UI scale is independent of the captured client dimensions.
+                for scale in (.8,.85,.9,.95,1.05,1.1,1.125,1.15,1.2,1.25,1.3,1.4):
+                    scaled=cv2.resize(png,None,fx=scale,fy=scale)
+                    self.templates[name].extend([scaled,cv2.GaussianBlur(scaled,(3,3),.5)])
             if name.startswith('s_'):
                 self.templates[name].append(cv2.GaussianBlur(png,(3,3),.5))
             if name.startswith('list_'):
@@ -135,11 +142,15 @@ class Vision:
             mask = (h > 75) & (h < 125) & (s > 100) & (v > 100)
         return float(np.mean(mask))
 
-    def difficulty_selection(self, requested):
+    def difficulty_selection(self, requested, scale=1.):
         candidates = []
         point = None
-        for title, box in zip(DIFFICULTIES, DIFFICULTY_BOXES):
-            hit = self.hit('diff_'+title)
+        for title, original in zip(DIFFICULTIES, DIFFICULTY_BOXES):
+            box=tuple(round(n*scale) for n in original)
+            name='diff_'+title
+            self.data[name]['roi']=list(box)
+            self.cache.pop(name,None)
+            hit = self.hit(name)
             if title == requested and hit:
                 point = hit.center
             x1,y1,x2,y2 = box
@@ -282,8 +293,10 @@ class Vision:
             detected = names[0] if len(names)==1 else ''
             p['enter'], p['together'] = e.center, t.center
             # Selection is the purple panel behind the text, not mere text presence.
-            together = self.color_fraction((461, 36, 610, 94), 'purple') > .35
-            selected, target = self.difficulty_selection(difficulty)
+            tx,ty,tw,th=t.box
+            together = self.color_fraction((tx-10,ty-8,tx+tw+10,ty+th+8), 'purple') > .35
+            scale=tw/self.templates['together'][0].shape[1]
+            selected, target = self.difficulty_selection(difficulty,scale)
             if target is not None:p['difficulty'] = target
             toggle = None
             if (label := self.hit('encounter_label')):
