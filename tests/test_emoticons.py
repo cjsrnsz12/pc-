@@ -1,68 +1,76 @@
-import base64
-from email import policy
-from email.parser import BytesParser
 from io import BytesIO
 import json
 from pathlib import Path
-import urllib.error
+import urllib.request
 
-from PIL import Image
+from PIL import Image,ImageDraw
 import pytest
 
-from emoticon_core import ENDPOINT, MODEL, build_prompt, generate, multipart, png_bytes, sticker_bytes
+from emoticon_core import edit_sticker,load_image,png_bytes,sticker_bytes,remove_edge_background
+
+
+def test_offline_edit_never_connects_and_keeps_source_unchanged(monkeypatch):
+    monkeypatch.setattr(urllib.request,'urlopen',lambda *a,**kw:pytest.fail('Network access'))
+    image=Image.new('RGBA',(800,1400));image.paste((15,180,220,255),(150,250,650,1150))
+    original=image.tobytes()
+    raw=edit_sticker(image,'안녕!')
+    assert image.tobytes()==original
+    with Image.open(BytesIO(raw)) as result:
+        assert result.size==(360,360)
+        assert result.convert('RGBA').getpixel((0,0))[3]==0
+    assert len(raw)<=150_000
+
+
+def test_background_removal_preserves_enclosed_white_details():
+    image=Image.new('RGBA',(100,100),'white');d=ImageDraw.Draw(image)
+    d.rectangle((20,20,80,80),fill='red');d.ellipse((40,40,60,60),fill='white')
+    result=remove_edge_background(image,20)
+    assert result.getpixel((0,0))[3]==0
+    assert result.getpixel((50,50))==(255,255,255,255)
+    assert result.getpixel((30,30))==(255,0,0,255)
+
+
+def test_transparent_input_is_retained():
+    image=Image.new('RGBA',(100,100));image.paste('red',(30,30,70,70))
+    assert remove_edge_background(image).tobytes()==image.tobytes()
+    raw=edit_sticker(image,outline=False)
+    result=Image.open(BytesIO(raw)).convert('RGBA')
+    assert result.getpixel((180,180))==(255,0,0,255)
+
+
+def test_all_background_and_long_caption_have_actionable_errors():
+    with pytest.raises(ValueError,match='남은 부분'):edit_sticker(Image.new('RGBA',(100,100),'white'),remove_bg=True)
+    with pytest.raises(ValueError,match='40자'):edit_sticker(Image.new('RGBA',(100,100),'red'),'가'*41)
+
+
+def test_long_korean_caption_and_portrait_fit_inside_transparent_margins():
+    raw=edit_sticker(Image.new('RGBA',(60,500),'red'),'수고하셨습니다 오늘도 즐거운 하루 보내세요')
+    image=Image.open(BytesIO(raw)).convert('RGBA');box=image.getchannel('A').getbbox()
+    assert image.size==(360,360) and len(raw)<=150_000
+    assert box[0]>0 and box[1]>0 and box[2]<360 and box[3]<360
+
+
+def test_mirror_changes_direction_without_changing_output_size():
+    image=Image.new('RGBA',(100,100),'blue');image.paste('red',(0,0,50,100))
+    normal=Image.open(BytesIO(edit_sticker(image,outline=False))).convert('RGBA')
+    mirrored=Image.open(BytesIO(edit_sticker(image,mirror=True,outline=False))).convert('RGBA')
+    assert normal.getpixel((100,180))[:3]==(255,0,0)
+    assert mirrored.getpixel((100,180))[:3]==(0,0,255)
+
+
+def test_photo_load_respects_orientation_and_file_limit(tmp_path):
+    path=tmp_path/'photo.jpg';image=Image.new('RGB',(50,80),'blue')
+    exif=image.getexif();exif[274]=6;image.save(path,exif=exif)
+    assert load_image(path).size==(80,50)
+    path=tmp_path/'large.png'
+    with path.open('wb') as out:out.truncate(16*1024*1024)
+    with pytest.raises(ValueError,match='15MB'):load_image(path)
 
 
 def test_generated_png_keeps_alpha_and_fits_size_limit():
     image=Image.new('RGBA',(800,1400));image.paste((15,180,220,255),(150,250,650,1150))
     raw=sticker_bytes(png_bytes(image))
-    with Image.open(BytesIO(raw)) as result:
-        assert result.size==(360,360)
-        rgba=result.convert('RGBA')
-        assert rgba.getpixel((0,0))[3]==0
-        assert rgba.getpixel((180,180))[3]==255
-    assert len(raw)<=150_000
-
-
-def test_request_sends_identity_then_pose_and_transparency():
-    body,kind=multipart(b'identity',b'pose','keep my character')
-    message=BytesParser(policy=policy.default).parsebytes(('Content-Type: '+kind+'\r\nMIME-Version: 1.0\r\n\r\n').encode()+body)
-    fields={};images=[]
-    for part in message.iter_parts():
-        name=part.get_param('name',header='content-disposition')
-        if name=='image[]':images.append(part.get_payload(decode=True))
-        else:fields[name]=part.get_payload(decode=True).decode()
-    assert images==[b'identity',b'pose']
-    assert fields['model']==MODEL and fields['n']=='1'
-    assert fields['background']=='transparent' and fields['output_format']=='png'
-
-
-def test_real_request_contract_and_result_conversion_with_fake_server():
-    raw=png_bytes(Image.new('RGBA',(1024,1024),(0,100,200,255)))
-    response=BytesIO(json.dumps({'data':[{'b64_json':base64.b64encode(raw).decode()}]}).encode())
-    def fake(request,timeout):
-        assert request.full_url==ENDPOINT and request.get_method()=='POST'
-        assert request.headers['Authorization']=='Bearer test-only-key'
-        assert timeout==360
-        return response
-    result=generate('test-only-key',Image.new('RGBA',(10,10)),Image.new('RGBA',(10,10)),'pose',opener=fake)
-    assert Image.open(BytesIO(result)).size==(360,360)
-
-
-@pytest.mark.parametrize('code',[400,401,403,429,500])
-def test_api_failures_do_not_retry_or_expose_credentials(code):
-    calls=[]
-    def fake(request,timeout):
-        calls.append(request)
-        raise urllib.error.HTTPError(ENDPOINT,code,'error',{},BytesIO(b'sensitive server response'))
-    with pytest.raises(ValueError) as error:
-        generate('test-only-key',Image.new('RGBA',(10,10)),Image.new('RGBA',(10,10)),'pose',opener=fake)
-    assert len(calls)==1
-    assert 'test-only-key' not in str(error.value) and 'sensitive' not in str(error.value)
-
-
-def test_empty_key_makes_no_network_call():
-    def fake(*a,**kw):raise AssertionError('unexpected request')
-    with pytest.raises(ValueError):generate('',None,None,'',opener=fake)
+    assert Image.open(BytesIO(raw)).size==(360,360) and len(raw)<=150_000
 
 
 def test_pack_is_eight_individual_transparent_images():
@@ -73,14 +81,6 @@ def test_pack_is_eight_individual_transparent_images():
         path=folder/item['file']
         with Image.open(path) as image:
             assert image.size==(360,360)
-            alpha=image.convert('RGBA').getchannel('A')
-            low,high=alpha.getextrema()
+            low,high=image.convert('RGBA').getchannel('A').getextrema()
             assert low==0 and high>=240
         assert path.stat().st_size<=150_000
-
-
-def test_prompt_preserves_roles_and_exact_caption():
-    prompt=build_prompt('sky-blue hair and red eyes','빼꼼','문 뒤에서')
-    assert 'Image 1' in prompt and 'Image 2' in prompt
-    assert '빼꼼' in prompt and 'five fingers' in prompt
-    assert 'No text' in build_prompt('character','','')

@@ -72,3 +72,12 @@ Windows 오류 5는 액세스 거부입니다. 권한 차이가 확인되지 않
 Python 3.12를 권장합니다. `python -m pip install -r requirements.txt`, `python -m pip install pytest pyinstaller==6.16.0` 후 `python -m pytest -q`로 테스트합니다. Windows에서 `python build_windows.py`로 `dist/AbyssHelper.exe`를 생성합니다. 소스 실행은 `pythonw Start.pyw`를 사용하면 콘솔이 없습니다.
 
 GitHub Actions가 main의 `version.py` 변경 또는 수동 실행 시 테스트 → Windows EXE 생성 → GUI 시작 검증 → Release 발행을 진행합니다. 다음 배포에서는 `version.py`, `version_info.txt`, `CHANGELOG.md`, `release_notes.md`, `latest.json`의 버전을 함께 올리세요. 동일 태그의 배포는 덮어쓰지 않습니다. `latest.json`은 외부 연동용 정보이며 앱의 실제 업데이트 판단은 바이너리가 올라온 정식 Release를 기준으로 합니다.
+
+## 로컬 이모티콘 공방
+
+메인 화면의 **이모티콘 만들기**에서 사진이나 스크린샷을 불러온 뒤 필요한 부분을 자르고, 문구·흰 테두리·좌우 반전을 적용할 수 있습니다. 모든 편집은 PC 안에서 처리하며 API 키, 인터넷 연결, 별도 AI 모델이 필요하지 않습니다.
+
+- 결과는 투명 여백이 있는 360×360 PNG, 150KB 이하로 보관함에 저장합니다.
+- 단색 배경 지우기는 가장자리와 비슷하고 연결된 색상에 적용합니다. 복잡한 배경은 자동으로 완전히 분리하지 못할 수 있으므로 자르기와 허용 범위를 조절하세요.
+- 원본 사진의 포즈·표정을 유지하는 편집 기능입니다. 사진을 새로운 그림으로 다시 그리지는 않습니다.
+- 기본 8종은 개별 PNG 또는 ZIP으로 저장합니다. 카카오톡에는 이미지로 전송하세요.
