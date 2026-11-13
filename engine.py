@@ -18,6 +18,7 @@ class State(str, Enum):
     WAIT = '보상 화면에서 대기'
     BLOCKED = '확인 필요'
     DEAD = '행동 불능'
+    RESTART = '재시작 대기중'
 
 
 @dataclass(frozen=True)
@@ -31,6 +32,7 @@ class Observation:
     still: bool = False
     food: bool = False
     motion_note: str = ''
+    wipe_verified: bool = False
 
 
 @dataclass(frozen=True)
@@ -67,6 +69,9 @@ class Controller:
         self.dead_since=None
         self.revive_last=-999.;self.revive_attempts=0
         self.potion_last=-999.;self.low_health_since=None
+        self.wipe_stage='';self.wipe_since=None;self.wipe_recoveries=0;self.wipe_outside_frames=0
+        self.wipe_exit_last=self.wipe_leave_last=-999.
+        self.wipe_exit_attempts=self.wipe_leave_attempts=0
 
     def emit(self, key, point, message, now):
         if point is None or now < self.settle_until:
@@ -87,6 +92,8 @@ class Controller:
     def step(self, o: Observation, now: float):
         if self.state == State.BLOCKED:
             return None
+        handled,action=self.wipe_action(o,now)
+        if handled:return action
         action=self.survival_action(o,now)
         if o.screen=='dead' or self.dead_since is not None or action is not None:return action
         # Cooperative mission is an overlay: never reset the underlying dungeon phase.
@@ -276,6 +283,56 @@ class Controller:
         else:
             self.still_since = None
         return None
+
+    def reset_after_wipe(self):
+        repeats,recoveries=self.repeats,self.wipe_recoveries
+        Controller.__init__(self,self.dungeon,self.difficulty,self.repeat,self.party)
+        self.repeats=repeats;self.wipe_recoveries=recoveries+1
+
+    def wipe_action(self,o,now):
+        if (o.screen=='wipe' or o.screen=='wipe_dialog' and o.wipe_verified) and not self.wipe_stage:
+            self.wipe_stage='exit';self.wipe_since=now
+            self.combat_latched=False;self.clear_seen_at=None
+            self.dead_since=None;self.low_health_since=None
+            self.still_since=None
+        if not self.wipe_stage:
+            if o.screen=='wipe_dialog':
+                self.state=State.RESTART;self.reason='퇴장 확인창 · 전멸 안내 확인 대기'
+                return True,None
+            return False,None
+        self.state=State.RESTART;self.reason='전투 종료 · 전멸 확인 · 퇴장 후 재시작 대기중'
+        if now-self.wipe_since>240:
+            self.state,self.reason=State.BLOCKED,'전멸 후 퇴장 화면 대기가 4분을 넘었습니다. 현재 화면을 확인하세요.'
+            return True,None
+        if o.screen=='wipe_dialog':
+            self.wipe_outside_frames=0
+            self.reason='재시작 대기중 · 던전 퇴장 안내 두 문구·초록색 나가기 확인'
+            return True,self.wipe_emit('wipe_leave',o.points.get('leave'),now)
+        if self.wipe_stage=='leaving' and o.screen=='field' and o.points.get('menu'):
+            self.wipe_outside_frames+=1
+            if self.wipe_outside_frames>=2:
+                self.reset_after_wipe()
+                self.reason='던전 밖 복귀 확인 · 처음 실행 순서로 재시작'
+            return True,None
+        self.wipe_outside_frames=0
+        if o.screen=='wipe':
+            if self.wipe_stage=='leaving' and now-self.wipe_leave_last<2.5:return True,None
+            return True,self.wipe_emit('wipe_exit',o.points.get('exit'),now)
+        return True,None
+
+    def wipe_emit(self,key,point,now):
+        stage='leave' if key=='wipe_leave' else 'exit'
+        last='wipe_'+stage+'_last';attempts='wipe_'+stage+'_attempts'
+        if point is None or now<self.settle_until or now-getattr(self,last)<2.5:return None
+        if getattr(self,attempts)>=3:
+            self.state,self.reason=State.BLOCKED,'전멸 후 나가기가 3회 반응하지 않습니다. 현재 화면을 확인하세요.'
+            return None
+        setattr(self,last,now);setattr(self,attempts,getattr(self,attempts)+1)
+        self.last_key,self.last_at=key,now
+        self.settle_until=now+.65
+        if stage=='leave':self.wipe_stage='leaving'
+        message='전멸 확인 · 재시작 대기중 → 미니맵 옆 나가기' if stage=='exit' else '던전 퇴장 안내 두 문구·초록색 나가기 확인 → 밖으로 나가기'
+        return Action(key,point,message)
 
     def survival_action(self,o,now):
         if o.screen=='dead':

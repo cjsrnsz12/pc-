@@ -534,13 +534,15 @@ class App:
                     elapsed=pause.resume(now)
                     if elapsed is not None:
                         if controller.entered_at is not None:controller.entered_at+=elapsed
+                        if controller.wipe_since is not None:controller.wipe_since+=elapsed
                         last_status=None;last_screen='';streak=0;previous_observation=None
                         unknown_since=None;warned=False;food_streak=0
                         self.events.put(('log','게임 창 확인 완료 → 현재 화면을 새로 확인해 진행을 이어갑니다.'))
                     frame=np.array(capture.grab({'left':left,'top':top,'width':width,'height':height}))[:,:,:3]
                     frame=cv2.resize(frame,(800,1000))
                     observation=detector.observe(frame,config['dungeon'],config['difficulty'],after_clear=controller.clear_clicked)
-                    if raid and raid_center.observe(observation.screen,entered=controller.phase=='inside'):
+                    recovering=bool(controller.wipe_stage) or observation.screen in ('wipe','wipe_dialog')
+                    if not recovering and raid and raid_center.observe(observation.screen,entered=controller.phase=='inside'):
                         self.events.put(('status',('카브락 보스방 입장 확인','게임 화면 중앙으로 마우스를 부드럽게 이동합니다.')))
                         if self.win.center_raid_pointer(hwnd,self.stop_event):
                             raid_center.completed()
@@ -548,7 +550,7 @@ class App:
                         previous_observation=None;streak=0;food_streak=0;last_screen='';last_status=None
                         self.stop_event.wait(.10)
                         continue
-                    center_due=list_center.observe(observation.screen)
+                    center_due=list_center.observe(observation.screen) if not recovering else False
                     if center_due and (not controller.combat_latched or controller.clear_clicked):
                         self.events.put(('status',('어비스 목록 확인','게임 화면 중앙보다 위로 마우스 이동 후 새 화면을 확인합니다.')))
                         if self.win.center_list_pointer(hwnd,self.stop_event):
@@ -588,8 +590,12 @@ class App:
 
                             warned=True
                     else:unknown_since=None;warned=False
+                    before_recoveries=controller.wipe_recoveries
                     action=controller.step(observation,now) if streak>=2 else None
-                    status=(controller.state.value,controller.reason or ('감지: '+{'unknown':'화면 확인 중','dead':'행동 불능·여기서 부활 확인','field':'일반 화면','combat':'전투','detail':'입장 설정','matching':'우연한 만남 대기','loading':'로딩','cutscene':'보스 연출','reward':'보상','mission':'협동 미션','clear':'던전 클리어','menu':'메뉴','list':'어비스 목록','raid_menu':'레이드 메뉴','raid_list':'카브락 목록','raid_detail':'레이드 설정','raid_travel':'레이드 지역 이동','raid_boat':'배 탑승·퀘스트 출항','raid_cutscene':'출항 장면','raid_inside':'카브락 입장·음식 확인','raid_weekend':'주말 레이드 퀘스트 보상','raid_reward':'카브락 처치 완료 보상','raid_return':'토벌 완료·우상단 나가기','raid_return_dialog':'출항선으로 이동 확인'}.get(observation.screen,observation.screen)))
+                    if controller.wipe_recoveries!=before_recoveries:
+                        detector.stillness.reset();list_center=ListCentering();raid_center=RaidEntryCentering()
+                        previous_observation=None;streak=0;food_streak=0;last_screen='';last_status=None
+                    status=(controller.state.value,controller.reason or ('감지: '+{'wipe':'전멸 · 재시작 대기중','wipe_dialog':'던전 퇴장 · 재시작 대기중','unknown':'화면 확인 중','dead':'행동 불능·여기서 부활 확인','field':'일반 화면','combat':'전투','detail':'입장 설정','matching':'우연한 만남 대기','loading':'로딩','cutscene':'보스 연출','reward':'보상','mission':'협동 미션','clear':'던전 클리어','menu':'메뉴','list':'어비스 목록','raid_menu':'레이드 메뉴','raid_list':'카브락 목록','raid_detail':'레이드 설정','raid_travel':'레이드 지역 이동','raid_boat':'배 탑승·퀘스트 출항','raid_cutscene':'출항 장면','raid_inside':'카브락 입장·음식 확인','raid_weekend':'주말 레이드 퀘스트 보상','raid_reward':'카브락 처치 완료 보상','raid_return':'토벌 완료·우상단 나가기','raid_return_dialog':'출항선으로 이동 확인'}.get(observation.screen,observation.screen)))
                     if observation.screen=='field' and controller.state==State.IDLE:
                         status=(status[0],status[1]+' / '+observation.motion_note)
                         motion_mode=observation.motion_note.split('(')[0]

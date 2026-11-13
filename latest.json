@@ -1,7 +1,7 @@
 {
-  "version": "1.1.38",
-  "title": "어비스 입장 화면 UI 배율 인식 수정",
-  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.1.38",
-  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.1.38/AbyssHelper.exe",
-  "notes": "게임 UI 배율이 달라도 입장하기·함께하기·던전 이름을 인식하고, 난이도 확인 영역을 글씨 크기에 맞춰 보정합니다."
+  "version": "1.1.39",
+  "title": "전멸 후 자동 재시작",
+  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.1.39",
+  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.1.39/AbyssHelper.exe",
+  "notes": "전멸 시 재시작 대기중으로 표시하고, 퇴장 확인 후 처음 진입 순서로 다시 시작합니다."
 }

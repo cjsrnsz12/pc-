@@ -1,0 +1,1 @@
+UI-only crops from supplied PC wipe and dungeon-exit confirmation screens. The game client excludes the Windows title bar. Complete screenshots, player names and chat are not included.

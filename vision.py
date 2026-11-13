@@ -13,6 +13,8 @@ from combat_templates import SKILL_BADGES
 from functools import lru_cache
 from survival_templates import SURVIVAL_TEMPLATES
 from party_templates import PARTY_TEMPLATES
+from wipe_templates import WIPE_TEMPLATES
+from wipe import observe_wipe
 
 DUNGEONS = {'허상의 정박지': 'harbor', '광기의 동굴': 'cave', '흩어진 물길': 'water'}
 DIFFICULTIES = ['입문', '어려움', '매우 어려움', '매우 어려움2']
@@ -37,6 +39,7 @@ class Vision:
         self.data.update(HUD_TEMPLATES)
         self.data.update(SURVIVAL_TEMPLATES)
         self.data.update(PARTY_TEMPLATES)
+        self.data.update(WIPE_TEMPLATES)
         for name in ('abyss','abyss_collab','menu_field_boss','menu_raid'):
             self.data[name]=dict(self.data[name],roi=(350,180,760,870))
         # The food button sits beside the portrait, above the buff icon row.
@@ -233,6 +236,7 @@ class Vision:
         return self.with_survival(self.observe_scene(frame,dungeon,difficulty,after_clear))
 
     def with_survival(self, observed):
+        if observed.screen in ('wipe','wipe_dialog'):return observed
         dead=self.hit('s_dead')
         if dead:
             button=self.hit('s_revive')
@@ -270,6 +274,7 @@ class Vision:
         self.cache = {}
         self.scores = {}
         p = {}
+        if (wiped:=observe_wipe(self)) is not None:return wiped
         if self.hit('mission') and (h := self.hit('confirm')):
             return Observation('mission', {'confirm': h.center})
         if self.hit('matching'):

@@ -7,6 +7,7 @@ import numpy as np
 from engine import Controller,Observation,State
 from vision import Vision,Hit
 from raid_templates import RAID_TEMPLATES
+from wipe import observe_wipe
 
 RAID_DIFFICULTIES=['입문','어려움']
 
@@ -82,6 +83,7 @@ class RaidVision(Vision):
     def observe_raid_scene(self,frame,dungeon='카브락',difficulty='입문',after_clear=False):
         self.frame=cv2.resize(frame,(800,1000));self.gray=cv2.cvtColor(self.frame,cv2.COLOR_BGR2GRAY)
         self.cache={};self.scores={}
+        if (wiped:=observe_wipe(self)) is not None:return wiped
         if self.hit('r_weekend_title') and self.hit('r_weekend_reward') and (button:=self.hit('r_weekend_confirm')):
             x,y=button.center
             if self.color_fraction((x-140,y-13,x+140,y+15),'green')>.40:
@@ -153,8 +155,15 @@ class RaidController(Controller):
         self.weekend_since=None;self.weekend_resync=False;self.weekend_last=-999.;self.weekend_attempts=0
         self.return_requested=False
 
+    def reset_after_wipe(self):
+        repeats,recoveries=self.repeats,self.wipe_recoveries
+        RaidController.__init__(self,self.difficulty)
+        self.repeats=repeats;self.wipe_recoveries=recoveries+1
+
     def step(self,o,now):
         if self.state==State.BLOCKED:return None
+        handled,action=self.wipe_action(o,now)
+        if handled:return action
         action=self.survival_action(o,now)
         if o.screen=='dead' or self.dead_since is not None or action is not None:return action
         if o.screen=='raid_weekend':
