@@ -22,6 +22,7 @@ jobs:
         run: |
           python -m compileall -q .
           python -m pytest -q
+          python emoticon_smoke.py
           python -u -c "import runpy,faulthandler,sys; sys.frozen=True; faulthandler.dump_traceback_later(45,exit=True); runpy.run_path('app.py',run_name='__main__')" --smoke-test --report "$env:RUNNER_TEMP/abyss-source-smoke.json"
       - name: Build no-console EXE
         run: python build_windows.py

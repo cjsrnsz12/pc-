@@ -1,0 +1,58 @@
+[
+  {
+    "id": "01_nyar_peek",
+    "name": "냐르",
+    "file": "01_nyar_peek.png",
+    "caption": "빼꼼",
+    "description": "Long pale sky-blue hair with twin round side buns, red eyes, WHITE cat ears, tiny blue cheek mark, gold earrings, white-and-blue frilly outfit with a blue heart and black skirt."
+  },
+  {
+    "id": "02_mochi_sulk",
+    "name": "모찌",
+    "file": "02_mochi_sulk.png",
+    "caption": "흥!",
+    "description": "Short pale sky-blue hair, blue eyes, white fluffy sheep hood with two brown curled ram horns and pink sheep ears, large teal blue ribbon with gold bell, fluffy white top, dark frilly skirt."
+  },
+  {
+    "id": "03_seolhwa_thanks",
+    "name": "설화",
+    "file": "03_seolhwa_thanks.png",
+    "caption": "고마워",
+    "description": "Short BLACK bob hair, red eyes, BLACK cat ears with pink interiors, white OFF-SHOULDER frilly dress, small blue pendant necklace."
+  },
+  {
+    "id": "04_seorin_cheer",
+    "name": "서린",
+    "file": "04_seorin_cheer.png",
+    "caption": "야호!",
+    "description": "Short orange hair with a small side ponytail, green eyes, lavender bow headband with heart, lavender and white frilly dress, small gold and blue jewel accents and white boots. Petite body."
+  },
+  {
+    "id": "05_momoi_lunch",
+    "name": "모모이",
+    "file": "05_momoi_lunch.png",
+    "caption": "맛점!",
+    "description": "Short golden orange bob, reddish brown eyes, BLACK cat ears with pink inside, small pink rose and white flower hair accessories, tiny white wings, pink-white frilly outfit, dark geometric-pattern skirt."
+  },
+  {
+    "id": "06_bina_sleep",
+    "name": "비나쟝",
+    "file": "06_bina_sleep.png",
+    "caption": "잘 자",
+    "description": "Long golden BLONDE hair, blue eyes, wide-brimmed beige sunhat with simple blue bow, white off-shoulder dress."
+  },
+  {
+    "id": "07_ardda_sorry",
+    "name": "아르닫움",
+    "file": "07_ardda_sorry.png",
+    "caption": "미안해",
+    "description": "Short wavy PASTEL PINK hair, NO animal ears, pink and purple asymmetric frilly dress with small silver blue jewel details."
+  },
+  {
+    "id": "08_hyungsu_home",
+    "name": "형수님",
+    "file": "08_hyungsu_home.png",
+    "caption": "퇴근!",
+    "description": "Long TEAL turquoise hair distinct from pale sky-blue, golden yellow eyes, white CAT-EAR HAT with teal trim, large teal bow with golden bell, white and gold jacket over a black pleated skirt, white stockings."
+  }
+]

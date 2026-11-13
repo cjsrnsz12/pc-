@@ -240,12 +240,20 @@ class App:
         ttk.Label(bottom,textvariable=self.update_text,style='Muted.TLabel').pack(side='left')
         self.update_button=ttk.Button(bottom,text='업데이트 소식',command=self.open_update_notice);self.update_button.pack(side='right')
         ttk.Button(bottom,text='권한 확인',command=self.check_permissions).pack(side='right',padx=(0,8))
+        ttk.Button(bottom,text='이모티콘 만들기',command=self.open_emoticons).pack(side='right',padx=(0,8))
         self._active_content='어비스'
         self._content_values={'어비스':(self.dungeon.get(),self.difficulty.get()),'레이드':('카브락',self.settings.get('raid_difficulty','입문'))}
         if self._content_values['레이드'][1] not in RAID_DIFFICULTIES:self._content_values['레이드']=('카브락','입문')
         self.content.trace_add('write',self.content_changed)
         self.content_changed()
         smooth_buttons(self.root)
+
+    def open_emoticons(self):
+        existing=getattr(self,'emoticon_window',None)
+        if existing and existing.alive:
+            existing.window.lift();existing.window.focus_set();return
+        from emoticon_ui import EmoticonWindow
+        self.emoticon_window=EmoticonWindow(self.root,BASE,DATA)
 
     def maintain_logs(self):
         if self.closing:return

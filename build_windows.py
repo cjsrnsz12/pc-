@@ -9,4 +9,5 @@ from ui_theme import app_icon
 app_icon(256).save(Path(__file__).parent/'build_icon.ico',format='ICO',sizes=[(16,16),(32,32),(48,48),(64,64),(256,256)])
 subprocess.check_call([sys.executable,'-m','PyInstaller','--noconfirm','--clean','--onefile','--windowed',
                       '--icon','build_icon.ico','--name','AbyssHelper','--add-data','assets.json;.','--add-data','release_notes.md;.',
+                      '--add-data','emoticons;emoticons',
                       '--version-file','version_info.txt','app.py'],cwd=Path(__file__).parent)
