@@ -53,6 +53,7 @@ from ui_controls import SmoothCheckbutton, smooth_buttons,RoundScrollbar
 from ui_theme import LauncherHeader, app_icon
 from choice_control import SmoothChoice, DIFFICULTY_COLORS, PLAY_MODES, CONTENT_TYPES
 from update_prompt import UpdatePrompt
+from room_sync import RoomSync
 
 BASE = Path(getattr(sys,'_MEIPASS',Path(__file__).resolve().parent))
 DATA = Path(os.getenv('LOCALAPPDATA', str(Path.home()))) / 'AbyssHelper'
@@ -99,6 +100,8 @@ class App:
         self.installing = False
         self.previous_keys = (False,False)
         self.windows = []
+        self.rooms=RoomSync(DATA/'shared_room.json',VERSION)
+        self.room_window=None
         self.settings_path = DATA/'settings.json'
         try:
             self.settings = json.loads(self.settings_path.read_text(encoding='utf-8'))
@@ -249,6 +252,7 @@ class App:
         ttk.Label(bottom,textvariable=self.update_text,style='Muted.TLabel').pack(side='left')
         self.update_button=ttk.Button(bottom,text='업데이트 소식',command=self.open_update_notice);self.update_button.pack(side='right')
         ttk.Button(bottom,text='권한 확인',command=self.check_permissions).pack(side='right',padx=(0,8))
+        ttk.Button(bottom,text='함께보기',command=self.open_rooms).pack(side='right',padx=(0,8))
         ttk.Button(bottom,text='이모티콘 만들기',command=self.open_emoticons).pack(side='right',padx=(0,8))
         self._active_content='어비스'
         self._content_values={'어비스':(self.dungeon.get(),self.difficulty.get()),'레이드':('카브락',self.settings.get('raid_difficulty','입문'))}
@@ -256,6 +260,12 @@ class App:
         self.content.trace_add('write',self.content_changed)
         self.content_changed()
         smooth_buttons(self.root)
+
+    def open_rooms(self):
+        if self.room_window and self.room_window.alive:
+            self.room_window.window.lift();return
+        from room_ui import RoomWindow
+        self.room_window=RoomWindow(self.root,self.rooms)
 
     def open_emoticons(self):
         existing=getattr(self,'emoticon_window',None)
@@ -524,6 +534,7 @@ class App:
         self.settings_path.write_text(json.dumps(self.settings,ensure_ascii=False,indent=2),encoding='utf-8')
         self.completed_count.set('완료 0판')
         self.running=True;self.stop_event.clear();self.lock_controls(True)
+        self.rooms.new_run(self.content.get())
         self.status.set('게임 창을 클릭하세요')
         self.log('시작: '+self.dungeon.get()+' / '+self.difficulty.get()+' / '+self.play_mode.get()+' — 게임 창이 앞에 있을 때만 인식·클릭합니다.')
         self.worker=threading.Thread(target=self.run,args=(hwnd,dict(self.settings)),daemon=True);self.worker.start()
@@ -744,10 +755,12 @@ class App:
             except queue.Empty:break
             if kind=='log':self.log(value)
             elif kind=='status':self.status.set(value[0]);self.detail.set(value[1])
-            elif kind=='completed':self.completed_count.set(f'완료 {value}판')
+            elif kind=='completed':
+                self.completed_count.set(f'완료 {value}판');self.rooms.count(value)
             elif kind=='error':
                 error,hwnd=value;self.log(str(error));self.show_operation_error('게임 조작',error,hwnd)
             elif kind=='stopped':
+                self.rooms.stopped()
                 self.running=False;self.lock_controls(False)
                 if self.status.get()!='확인 필요':self.status.set('중지됨')
                 pending=self.pending_update;self.pending_update=None
@@ -806,7 +819,7 @@ class App:
         messagebox.showerror('오류','작업을 중지했습니다. 기록 폴더의 로그 파일.log를 확인하세요.\n'+str(value),parent=self.root)
 
     def close(self):
-        self.closing=True;self.stop_event.set()
+        self.closing=True;self.stop_event.set();self.rooms.close()
         for cancel in self.download_cancels:cancel.set()
         self.root.after(100,self.wait_close)
 
@@ -843,7 +856,9 @@ if __name__=='__main__':
         style_report=exercise_style_controls(app,sys.argv[sys.argv.index('--report')+1])
         from ui_dialog_test import exercise_update_dialogs
         dialog_report=exercise_update_dialogs(app,sys.argv[sys.argv.index('--report')+1])
-        report={'ok':True,'version':VERSION,'templates':len(detector.data),'ui':'created','platform':sys.platform,'update_ui':update_ui_report,'style_ui':style_report,'dialog_ui':dialog_report}
+        from room_smoke import exercise_room_window
+        room_report=exercise_room_window(root,sys.argv[sys.argv.index('--report')+1])
+        report={'rooms':room_report,'ok':True,'version':VERSION,'templates':len(detector.data),'ui':'created','platform':sys.platform,'update_ui':update_ui_report,'style_ui':style_report,'dialog_ui':dialog_report}
         out=Path(sys.argv[sys.argv.index('--report')+1])
         out.write_text(json.dumps(report),encoding='utf-8')
         app.closing=True;root.destroy()

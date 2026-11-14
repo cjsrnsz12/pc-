@@ -3,6 +3,8 @@ on:
   push:
     branches: [main]
     paths: ['version.py', '.github/workflows/windows-release.yml']
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 permissions:
   contents: write
@@ -62,6 +64,7 @@ jobs:
           path: dist/AbyssHelper.exe
           retention-days: 30
       - name: Publish release
+        if: github.event_name != 'pull_request'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
