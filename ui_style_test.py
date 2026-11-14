@@ -1,11 +1,11 @@
-"""Windows GUI regression check for dark hover, ticks and transition lifecycle."""
+"""Windows GUI regression check for dark hover, food choices and transition lifecycle."""
 import time
 from tkinter import ttk
 from pathlib import Path
 import ctypes as C
 from ctypes import wintypes as W
 from PIL import Image
-from ui_controls import BG,SmoothCheckbutton
+from ui_controls import BG
 
 
 def exercise_style_controls(app,report_path):
@@ -21,19 +21,18 @@ def exercise_style_controls(app,report_path):
     app.completed_count.set('완료 12판');app.stop()
     assert app.completed_count.get()=='완료 12판'
     app.stop_event.clear();app.completed_count.set('완료 0판')
-    check=app.food_check
-    assert isinstance(check,SmoothCheckbutton)
-    original=bool(app.food.get())
-    app.food.set(False);settle()
+    from food_templates import FOOD_OPTIONS
+    original=app.food_kind.get()
+    assert len(app.food_buttons)==3
+    for button,(kind,label) in zip(app.food_buttons,FOOD_OPTIONS):
+        button.invoke();settle()
+        assert app.food_kind.get()==kind and app.food.get()==(kind!='none')
+        assert button.instate(('selected',))
+        button.configure(state='disabled');before=app.food_kind.get();button.invoke()
+        assert app.food_kind.get()==before
+        button.configure(state='normal')
+    app.food_kind.set(original);app.food_changed()
     assert APP_NAME in [app.header.itemcget(i,'text') for i in app.header.find_all() if app.header.type(i)=='text']
-    check.invoke();settle()
-    assert app.food.get() and check.selected>.99
-    check.event_generate('<Enter>');settle()
-    assert check.cget('background')==BG and check.label.cget('background')==BG
-    check.configure(state='disabled');check.event_generate('<Enter>');settle()
-    previous=app.food.get();check.invoke();assert app.food.get()==previous
-    assert check.label.cget('background')==BG
-    check.configure(state='normal');app.food.set(original);settle()
     from choice_control import PLAY_MODES,DIFFICULTY_COLORS
     from choice_control import SmoothChoice,CONTENT_TYPES
     from vision import DUNGEONS
@@ -94,4 +93,4 @@ def exercise_style_controls(app,report_path):
     with mss.mss() as capture:
         shot=capture.grab({'left':origin.x,'top':origin.y,'width':rect.right,'height':rect.bottom})
         Image.frombytes('RGB',shot.size,shot.rgb).save(screenshot)
-    return {'hover_stays_dark':True,'check_mark':'tick','disabled_click_ignored':True,'button_transition':True,'native_preview':str(screenshot),'footer_visible':True}
+    return {'hover_stays_dark':True,'food_selection':True,'disabled_click_ignored':True,'button_transition':True,'native_preview':str(screenshot),'footer_visible':True}

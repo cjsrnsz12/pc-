@@ -18,8 +18,8 @@ class RaidObservation(Observation):
 
 
 class RaidVision(Vision):
-    def __init__(self,asset_path):
-        super().__init__(asset_path)
+    def __init__(self,asset_path,food_kind="snack"):
+        super().__init__(asset_path,food_kind)
         self.data.update(RAID_TEMPLATES)
         for name,item in RAID_TEMPLATES.items():
             png=cv2.imdecode(np.frombuffer(base64.b64decode(item['png']),np.uint8),cv2.IMREAD_GRAYSCALE)
@@ -69,7 +69,8 @@ class RaidVision(Vision):
         self.scores[score_key]=round(best.score,4) if best else None
         return best if best and best.score>=.72 else None
 
-    def bread_button(self):
+    def food_button(self):
+        if self.food_kind!='snack':return self.selected_food()
         button=self.hit('r_food_bread')
         if button is None:return None
         x,y,w,h=button.box;hsv=cv2.cvtColor(self.frame[y:y+h,x:x+w],cv2.COLOR_BGR2HSV)
@@ -112,8 +113,8 @@ class RaidVision(Vision):
         if not hud and self.hit('menu'):
             hud=any(self.color_fraction(box,'green')>.003 for box in ((80,85,220,110),(80,50,220,78)))
         if self.raid_goal():
-            bread=self.bread_button() if hud else None
-            return RaidObservation('raid_inside',{'food':bread.center} if bread else {},dungeon='카브락',food=bread is not None)
+            food=self.food_button() if hud else None
+            return RaidObservation('raid_inside',{'food':food.center} if food else {},dungeon='카브락',food=food is not None)
 
         if (title:=self.hit('r_detail_name')) and (solo:=self.hit('r_solo') or self.hit('r_solo_on')):
             points={'solo':solo.center}
@@ -271,7 +272,7 @@ class RaidController(Controller):
         if o.screen in ('raid_inside','combat'):
             self.phase='inside';self.entered_at=None;self.state=State.COMBAT
             self.combat_latched=True;self.still_since=None
-            self.reason='카브락 입장 확인 · 지정된 빵 아이콘이 보일 때만 음식 사용' if o.screen=='raid_inside' else '현재 전투 HUD 확인 · 레이드 전투 중'
+            self.reason='카브락 입장 확인 · 선택한 음식 아이콘이 보일 때만 음식 사용' if o.screen=='raid_inside' else '현재 전투 HUD 확인 · 레이드 전투 중'
             return self.food_action(o,now) if o.screen=='raid_inside' else None
         if self.phase=='inside':
             self.state=State.COMBAT;self.reason='카브락 전투 중 · 입장·메뉴 조작 없이 음식 아이콘 확인'

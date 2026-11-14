@@ -15,6 +15,7 @@ from survival_templates import SURVIVAL_TEMPLATES
 from party_templates import PARTY_TEMPLATES
 from wipe_templates import WIPE_TEMPLATES
 from wipe import observe_wipe
+from food_templates import FOOD_TEMPLATES, FOOD_OPTIONS
 
 DUNGEONS = {'허상의 정박지': 'harbor', '광기의 동굴': 'cave', '흩어진 물길': 'water'}
 DIFFICULTIES = ['입문', '어려움', '매우 어려움', '매우 어려움2']
@@ -33,13 +34,15 @@ class Hit:
 
 
 class Vision:
-    def __init__(self, asset_path: Path):
+    def __init__(self, asset_path: Path, food_kind="snack"):
+        self.food_kind=food_kind if food_kind in dict(FOOD_OPTIONS) else "none"
         self.data = json.loads(asset_path.read_text(encoding='utf-8'))
         self.data.update(DETAIL_TEMPLATES)
         self.data.update(HUD_TEMPLATES)
         self.data.update(SURVIVAL_TEMPLATES)
         self.data.update(PARTY_TEMPLATES)
         self.data.update(WIPE_TEMPLATES)
+        self.data.update(FOOD_TEMPLATES)
         for name in ('abyss','abyss_collab','menu_field_boss','menu_raid'):
             self.data[name]=dict(self.data[name],roi=(350,180,760,870))
         # The food button sits beside the portrait, above the buff icon row.
@@ -102,6 +105,18 @@ class Vision:
         result = best if best and best.score >= d['threshold'] else None
         self.cache[name] = result
         return result
+
+    def selected_food(self):
+        if self.food_kind=='none':return None
+        if self.food_kind=='snack':return self.hit('food')
+        hit=self.hit('f_egg')
+        if hit is None:return None
+        x,y,w,h=hit.box
+        hsv=cv2.cvtColor(self.frame[y:y+h,x:x+w],cv2.COLOR_BGR2HSV)
+        hue,saturation,value=cv2.split(hsv)
+        yolk=(hue>=10)&(hue<=38)&(saturation>140)&(value>120)
+        white=(saturation<65)&(value>170)
+        return hit if float(np.mean(yolk))>.015 and float(np.mean(white))>.035 else None
 
     def result_hit(self,name):
         original=self.hit(name)
@@ -329,7 +344,7 @@ class Vision:
         if hud:
             if menu:
                 p['menu'] = menu.center
-            food = self.hit('food')
+            food = self.selected_food()
             if food:
                 p['food'] = food.center
             combat=self.combat_hud(self.frame) or self.hit('objective_harbor') is not None

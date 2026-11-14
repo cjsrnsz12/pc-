@@ -36,6 +36,7 @@ from engine import Controller, Observation, State
 from raid import RaidController,RaidVision,RAID_DIFFICULTIES
 from recognition_timing import poll_interval, same_detection
 from run_count import RunCount
+from food_templates import FOOD_OPTIONS, selected_food_kind
 from list_centering import ListCentering,RaidEntryCentering
 from capture_guard import CapturePause, within_desktop
 from window_sizing import supported_client
@@ -149,6 +150,8 @@ class App:
         s.configure('Start.TButton',background=ACCENT,foreground='#05271e',font=('맑은 고딕',12,'bold'))
         s.map('Start.TButton',background=[('disabled','#23483e'),('active','#7cecc8')],foreground=[('disabled','#8190aa'),('!disabled','#05271e')])
         s.configure('Stop.TButton',foreground='#ffacb5')
+        s.configure('Food.Toolbutton',padding=(12,9),background='#263550',foreground=TEXT)
+        s.map('Food.Toolbutton',background=[('disabled','#172239'),('selected','#365c56'),('active','#354b6e')],foreground=[('disabled',MUTED),('selected','#a7ffe1'),('!disabled',TEXT)])
         s.configure('TCombobox',fieldbackground='#263550',background='#263550',foreground=TEXT,padding=7,arrowcolor=TEXT)
         s.map('TCombobox',fieldbackground=[('disabled','#182237'),('readonly','#263550'),('active','#263550')],background=[('disabled','#182237'),('active','#30425e'),('!disabled','#263550')],foreground=[('disabled',MUTED),('readonly',TEXT)],bordercolor=[('focus','#7dd9cf'),('active','#7a6fc2'),('!disabled','#455577')],lightcolor=[('!disabled','#263550')],darkcolor=[('!disabled','#263550')],selectbackground=[('!disabled','#354e73')],selectforeground=[('!disabled',TEXT)])
         s.configure('Horizontal.TProgressbar',background=ACCENT,troughcolor='#162136',bordercolor='#162136',lightcolor=ACCENT,darkcolor=ACCENT,borderwidth=0,thickness=7)
@@ -207,7 +210,8 @@ class App:
         self.dungeon_box=SmoothChoice(options,textvariable=self.dungeon,values=list(DUNGEONS),command=self.destination_changed);self.dungeon_box.grid(row=1,column=0,sticky='ew')
         self.difficulty_box=SmoothChoice(options,textvariable=self.difficulty,values=DIFFICULTIES,colors=DIFFICULTY_COLORS);self.difficulty_box.grid(row=1,column=1,sticky='ew',padx=(12,0))
         self.repeat=tk.BooleanVar(value=bool(self.settings.get('repeat',True)))
-        self.food=tk.BooleanVar(value=bool(self.settings.get('food',True)))
+        self.food_kind=tk.StringVar(value=selected_food_kind(self.settings))
+        self.food=tk.BooleanVar(value=self.food_kind.get()!='none')
         self.play_mode=tk.StringVar(value=self.settings.get('play_mode',PLAY_MODES[0]).removesuffix(' · 준비 중'))
         if self.play_mode.get() not in PLAY_MODES:self.play_mode.set(PLAY_MODES[0])
         self.play_mode.trace_add('write',self.play_mode_changed)
@@ -217,7 +221,12 @@ class App:
         self.mode_hint=tk.StringVar(value='솔로 모드 · 보상 화면에서 다시 하기')
         ttk.Label(destination_section,textvariable=self.mode_hint,style='Muted.Card.TLabel',wraplength=650).pack(anchor='w',pady=(6,4))
         self.entry_hint=tk.StringVar(value='입장 조건: 함께하기 · 선택한 난이도 · 우연한 만남 ON')
-        self.food_check=SmoothCheckbutton(destination_section,text='음식 아이콘이 나타나면 한 번 클릭',variable=self.food);self.food_check.pack(anchor='w')
+        ttk.Label(destination_section,text='음식 설정 · 선택한 아이콘만 자동 사용',style='Card.TLabel').pack(anchor='w',pady=(5,5))
+        food_row=ttk.Frame(destination_section,style='Surface.TFrame');food_row.pack(fill='x')
+        self.food_buttons=[]
+        for kind,label in FOOD_OPTIONS:
+            button=ttk.Radiobutton(food_row,text=label,value=kind,variable=self.food_kind,style='Food.Toolbutton',command=self.food_changed)
+            button.pack(side='left',padx=(0,6));self.food_buttons.append(button)
         ttk.Label(destination_section,textvariable=self.entry_hint,style='Muted.Card.TLabel',wraplength=650).pack(anchor='w',pady=(6,0))
         count_row=ttk.Frame(self.footer);count_row.pack(fill='x',pady=(0,6))
         ttk.Label(count_row,text='이번 실행 완료 횟수',style='Muted.TLabel').pack(side='left')
@@ -286,8 +295,14 @@ class App:
         self._content_values[self._active_content]=(self.dungeon.get(),self.difficulty.get())
         abyss=self._content_values['어비스'];raid=self._content_values['레이드']
         return dict(self.settings,dungeon=self.dungeon.get(),difficulty=self.difficulty.get(),repeat=self.repeat.get(),
-                    food=self.food.get(),play_mode=self.play_mode.get(),content=self.content.get(),
+                    food=self.food_kind.get()!='none',food_kind=self.food_kind.get(),play_mode=self.play_mode.get(),content=self.content.get(),
                     abyss_dungeon=abyss[0],abyss_difficulty=abyss[1],raid_difficulty=raid[1])
+
+    def food_changed(self):
+        self.food.set(self.food_kind.get()!='none')
+        self.settings=self.collect_settings()
+        try:self.settings_path.write_text(json.dumps(self.settings,ensure_ascii=False,indent=2),encoding='utf-8')
+        except OSError as error:self.log('음식 설정 저장 실패: '+str(error))
 
     def content_changed(self,*_):
         self._content_values[self._active_content]=(self.dungeon.get(),self.difficulty.get())
@@ -482,7 +497,7 @@ class App:
 
     def lock_controls(self,running):
         for w in (self.window_box,self.content_box,self.dungeon_box,self.difficulty_box,self.mode_box):w.configure(state='disabled' if running else 'readonly')
-        for w in (self.refresh_button,self.resize_button,self.start_button,self.food_check):w.configure(state='disabled' if running else 'normal')
+        for w in (self.refresh_button,self.resize_button,self.start_button,*self.food_buttons):w.configure(state='disabled' if running else 'normal')
         self.stop_button.configure(state='normal' if running else 'disabled')
         if self.installing:self.start_button.configure(state='disabled')
 
@@ -521,7 +536,8 @@ class App:
     def run(self,hwnd,config):
         try:
             raid=config.get('content')=='레이드'
-            detector=RaidVision(BASE/'assets.json') if raid else Vision(BASE/'assets.json')
+            food_kind=selected_food_kind(config)
+            detector=RaidVision(BASE/'assets.json',food_kind) if raid else Vision(BASE/'assets.json',food_kind)
             controller=RaidController(config['difficulty']) if raid else Controller(config['dungeon'],config['difficulty'],config['repeat'],party=config.get('play_mode')==PLAY_MODES[1])
             run_count=RunCount()
             last_screen,streak,food_streak='',0,0
