@@ -25,7 +25,7 @@ def test_onboarding_registers_once_and_syncs_count(tmp_path):
  s.stopped();until(lambda:api.calls[-1].get('running') is False and api.calls[-1].get('completed')==29)
  previous=s.run_id;s.new_run('어비스');assert s.completed==0 and s.run_id!=previous
  assert 'token' not in s.view();s.close();s.thread.join(1);assert not s.thread.is_alive();assert api.calls[-1]['present'] is False
- defunct=json.loads((tmp_path/'players.json').read_text());assert defunct['identity']['consent_version']==2
+ defunct=json.loads((tmp_path/'players.json').read_text(encoding='utf-8'));assert defunct['identity']['consent_version']==2
 
 def test_restart_stopped_and_no_nickname_prompt(tmp_path):
  api=API();s=manager(tmp_path,api);s.set_nickname('재실행');until(lambda:s.registered);s.new_run('어비스');s.count(43);s.close();s.thread.join(1)
