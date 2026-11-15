@@ -22,7 +22,7 @@ def case(monkeypatch,tmp_path):
     import app
     a=app.App.__new__(app.App)
     from unittest.mock import Mock
-    a.rooms=Mock()
+    a.players=Mock()
     a.running=True;a.closing=False;a.installing=False
     a.pending_update=None;a.pending_installed_notice=None
     a.update_manual_requested=False;a.update_busy=True;a.latest_release=None

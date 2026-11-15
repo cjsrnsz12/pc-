@@ -14,7 +14,7 @@ def start_case(tmp_path,monkeypatch):
     monkeypatch.setenv('LOCALAPPDATA',str(tmp_path/'data'))
     import app as module
     calls=[]
-    case=SimpleNamespace(rooms=Mock(),running=False,sizing_busy=False,installing=False,closing=False,
+    case=SimpleNamespace(players=Mock(),running=False,sizing_busy=False,installing=False,closing=False,
         play_mode=Variable(module.PLAY_MODES[0]),content=Variable('레이드'),dungeon=Variable('카브락'),
         difficulty=Variable('입문'),completed_count=Variable('완료 5판'),status=Variable('대기'),root=None,stop_event=threading.Event(),worker=None,
         settings_path=tmp_path/'settings.json',settings={},pending_update=None,pending_installed_notice=None,
@@ -36,7 +36,7 @@ def test_start_runs_without_unfinished_confirmation(start_case,monkeypatch,conte
     monkeypatch.setattr(module.messagebox,'askyesno',unexpected)
     module.App.start(case)
     assert case.running and not case.stop_event.is_set()
-    case.rooms.new_run.assert_called_once_with(content)
+    case.players.new_run.assert_called_once_with(content)
     assert case.completed_count.get()=='완료 0판'
     assert 'permission' in calls and 'worker_started' in calls and case.settings_path.exists()
 
@@ -84,5 +84,14 @@ def test_completed_event_is_displayed_and_worker_stop_keeps_it(start_case):
     case.win.keys=lambda:(False,False);case.previous_keys=(False,False);case.pump=lambda:None
     module.App.pump(case)
     assert case.completed_count.get()=='완료 7판' and not case.running
-    case.rooms.count.assert_called_once_with(7)
-    case.rooms.stopped.assert_called_once()
+    case.players.count.assert_called_once_with(7)
+    case.players.stopped.assert_called_once()
+
+
+def test_first_nickname_prevents_game_start_until_saved(start_case):
+    module,case,calls=start_case
+    case.players.has_nickname.return_value=False
+    case.open_players=lambda:calls.append('nickname_setup')
+    module.App.start(case)
+    assert calls==['nickname_setup'] and not case.running
+    case.players.new_run.assert_not_called()
