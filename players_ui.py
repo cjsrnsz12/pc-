@@ -9,7 +9,7 @@ class PlayersWindow:
         w=min(760,max(560,parent.winfo_screenwidth()-48));h=min(660,max(470,parent.winfo_screenheight()-100));self.window.geometry(f'{w}x{h}+24+24');self.window.minsize(min(560,w),min(470,h));self.window.protocol('WM_DELETE_WINDOW',self.close)
         shell=ttk.Frame(self.window,padding=18);shell.pack(fill='both',expand=True)
         ttk.Label(shell,text='사용중인 플레이어',font=('맑은 고딕',20,'bold')).pack(anchor='w')
-        ttk.Label(shell,text='닉네임을 저장하면 모든 냐크로 사용자에게 닉네임 · 모바일/PC · 실행 상태 · 콘텐츠 · 완료 횟수가 공개됩니다.',wraplength=690,style='Muted.TLabel').pack(fill='x',pady=(7,12))
+        ttk.Label(shell,text='닉네임을 저장하면 모든 냐크로 사용자에게 닉네임 · 모바일/PC · 실행 상태 · 콘텐츠 · 누적 완료 횟수가 공개됩니다.',wraplength=690,style='Muted.TLabel').pack(fill='x',pady=(7,12))
         self.status=tk.StringVar();ttk.Label(shell,textvariable=self.status,wraplength=690).pack(fill='x',pady=6)
         self.form=ttk.Frame(shell);self.form.pack(fill='x');ttk.Label(self.form,text='처음 사용할 닉네임 (1~20자)').pack(anchor='w')
         self.name=tk.StringVar(value=sync.view()['nickname']);self.entry=ttk.Entry(self.form,textvariable=self.name);self.entry.pack(fill='x',pady=6)
@@ -22,10 +22,10 @@ class PlayersWindow:
         table=ttk.Frame(shell);table.pack(fill='both',expand=True,pady=8)
         style=ttk.Style(self.window);style.configure('Players.Treeview',background='#162136',fieldbackground='#162136',foreground='#edf2ff',rowheight=32);style.map('Players.Treeview',background=[('selected','#354e73')])
         self.table=ttk.Treeview(table,style='Players.Treeview',columns=('name','platform','state','content','count'),show='headings',height=7)
-        for key,label,width in [('name','닉네임',170),('platform','사용 기기',80),('state','상태',90),('content','콘텐츠',85),('count','완료',80)]:self.table.heading(key,text=label);self.table.column(key,width=width,minwidth=55)
+        for key,label,width in [('name','닉네임',170),('platform','사용 기기',80),('state','상태',90),('content','콘텐츠',85),('count','누적 완료',110)]:self.table.heading(key,text=label);self.table.column(key,width=width,minwidth=55)
         scroll=RoundScrollbar(table,command=self.table.yview);scroll.pack(side='right',fill='y');self.table.configure(yscrollcommand=scroll.set);self.table.pack(fill='both',expand=True)
         self.page_label=tk.StringVar();ttk.Label(shell,textvariable=self.page_label,style='Muted.TLabel').pack(anchor='w')
-        ttk.Label(shell,text='새 실행은 0판부터 계산합니다. 연결이 끊긴 사용자는 약 1분 후 목록에서 빠집니다.',wraplength=690,style='Muted.TLabel').pack(fill='x',pady=(5,0))
+        ttk.Label(shell,text='누적 횟수는 새 실행·중지·재실행 후에도 유지됩니다. 연결이 끊기면 약 1분 후 목록에서 빠집니다.',wraplength=690,style='Muted.TLabel').pack(fill='x',pady=(5,0))
         smooth_buttons(self.window);self.refresh()
         if self.editing:self.entry.focus_set()
     def submit(self):
@@ -45,7 +45,7 @@ class PlayersWindow:
             self.table.delete(*self.table.get_children())
             for m in v['players']:
                 status=('실행 중' if m['status']=='running' else '중지') if v['connected'] else '연결 확인 중'
-                self.table.insert('',tk.END,iid=m['id'],values=(m['nickname']+(' (나)' if m['id']==v['member_id'] else ''),'모바일' if m['platform']=='mobile' else 'PC',status,m['content'] or '—',str(m['completed'])+'판'))
+                self.table.insert('',tk.END,iid=m['id'],values=(m['nickname']+(' (나)' if m['id']==v['member_id'] else ''),'모바일' if m['platform']=='mobile' else 'PC',status,m['content'] or '—',f"{m['lifetime_completed']:,}판"))
             self.page_label.set(f"{v['offset']//100+1}페이지 · 전체 {v['total']}명")
     def refresh(self):
         if not self.alive:return
