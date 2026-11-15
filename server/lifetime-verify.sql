@@ -1,0 +1,30 @@
+begin;
+do $test$
+declare uid text:=gen_random_uuid()::text;secret text:=repeat('a',64);b jsonb;r jsonb;guard_value boolean;
+begin
+ b:=jsonb_build_object('op','players_register','member_id',uid,'token',secret,'nickname','누적검증','platform','pc','app_version','1.1.47','consent_version',2);
+ r:=public.nyacro_players_dispatch(b,repeat('4',64));assert r->>'self_lifetime_completed'='0';
+ b:=jsonb_build_object('op','players_sync','member_id',uid,'token',secret,'seq',1,'running',true,'present',true,'completed',10,'content','어비스','run_id','1');
+ r:=public.nyacro_players_dispatch(b,repeat('4',64));assert r->>'self_lifetime_completed'='10';
+ r:=public.nyacro_players_dispatch(b,repeat('4',64));assert r->>'self_lifetime_completed'='10';
+ r:=public.nyacro_players_dispatch(b||'{"seq":2,"completed":8}'::jsonb,repeat('4',64));assert r->>'self_lifetime_completed'='10';
+ r:=public.nyacro_players_dispatch(b||'{"seq":3,"completed":3,"run_id":"2"}'::jsonb,repeat('4',64));assert r->>'self_lifetime_completed'='13';
+ r:=public.nyacro_players_dispatch(b||'{"seq":4,"completed":5,"run_id":"2"}'::jsonb,repeat('4',64));assert r->>'self_lifetime_completed'='15';
+ r:=public.nyacro_players_dispatch(b||'{"seq":5,"completed":0,"run_id":"3","running":false}'::jsonb,repeat('4',64));assert r->>'self_lifetime_completed'='15';
+ r:=public.nyacro_players_dispatch(b||'{"seq":4,"completed":99}'::jsonb,repeat('4',64));assert r->>'self_lifetime_completed'='15';
+ r:=public.nyacro_players_dispatch(jsonb_build_object('op','players_register','member_id',uid,'token',secret,'nickname','누적이름변경','platform','pc','app_version','1.1.47','consent_version',2,'lifetime_completed',75),repeat('4',64));assert r->>'self_lifetime_completed'='75';
+ r:=public.nyacro_players_dispatch(b||'{"seq":6,"completed":7,"run_id":"3","lifetime_completed":75}'::jsonb,repeat('4',64));assert r->>'self_lifetime_completed'='75';
+ r:=public.nyacro_players_dispatch(b||'{"seq":7,"completed":4,"run_id":"4","lifetime_completed":79}'::jsonb,repeat('4',64));assert r->>'self_lifetime_completed'='79';
+ r:=public.nyacro_players_dispatch(b||'{"seq":8,"completed":4,"run_id":"4","lifetime_completed":0}'::jsonb,repeat('4',64));assert r->>'self_lifetime_completed'='79';
+ r:=public.nyacro_players_dispatch(b||'{"seq":9,"completed":2,"run_id":"5"}'::jsonb,repeat('4',64));assert r->>'self_lifetime_completed'='81';
+ assert public.nyacro_players_dispatch(b||'{"seq":10,"lifetime_completed":-1}'::jsonb,repeat('4',64))->>'error'='invalid_request';
+ assert public.nyacro_players_dispatch(b||'{"seq":10,"lifetime_completed":9000000000000001}'::jsonb,repeat('4',64))->>'error'='invalid_request';
+ r:=public.nyacro_players_dispatch(b||'{"seq":10,"lifetime_completed":3000000000}'::jsonb,repeat('4',64));assert r->>'self_lifetime_completed'='3000000000';
+ select (p->>'lifetime_completed')::bigint=3000000000 into guard_value from jsonb_array_elements(r->'players') p where p->>'id'=uid;assert guard_value;
+ r:=public.nyacro_players_dispatch(b||'{"seq":11,"lifetime_completed":9000000000000000}'::jsonb,repeat('4',64));assert r->>'self_lifetime_completed'='9000000000000000';
+ r:=public.nyacro_players_dispatch(b||'{"seq":12,"completed":11}'::jsonb,repeat('4',64));assert r->>'self_lifetime_completed'='9000000000000000';
+ assert not has_function_privilege('anon','public.nyacro_players_dispatch(jsonb,text)','execute');
+ assert not has_table_privilege('authenticated','nyacro_players.players','select');
+end $test$;
+rollback;
+select 'PASS lifetime across runs, legacy clients, offline recovery, idempotence, stale requests, lower counts, rename, 64-bit, limit and grants' as result;

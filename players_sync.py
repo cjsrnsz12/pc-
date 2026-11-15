@@ -3,6 +3,8 @@ import copy,json,os,re,secrets,threading,time,uuid,urllib.request,urllib.error
 from pathlib import Path
 from room_config import ENDPOINT,PUBLISHABLE_KEY
 
+MAX_LIFETIME=9_000_000_000_000_000
+
 class PlayerError(Exception):
     def __init__(self,code='unavailable'):
         self.code=code
@@ -29,6 +31,7 @@ class PlayerAPI:
             result=json.loads(raw)
             if not isinstance(result,dict) or result.get('ok') is not True:raise PlayerError()
             if body['op']=='players_remove':return result
+            if type(result.get('self_lifetime_completed')) is not int or not 0<=result['self_lifetime_completed']<=MAX_LIFETIME:raise ValueError()
             if result.get('protocol')!=2 or result.get('page_size')!=100:raise ValueError()
             if type(result['total']) is not int or not 0<=result['total']<=10000 or type(result['offset']) is not int or not 0<=result['offset']<=10000:raise ValueError()
             rows=result['players']
@@ -36,6 +39,7 @@ class PlayerAPI:
             for m in rows:
                 uuid.UUID(m['id']);nickname(m['nickname'])
                 if m['platform'] not in ('mobile','pc') or m['status'] not in ('running','stopped') or m['content'] not in ('','어비스','레이드'):raise ValueError()
+                if type(m.get('lifetime_completed')) is not int or not 0<=m['lifetime_completed']<=MAX_LIFETIME:raise ValueError()
                 if type(m['completed']) is not int or not 0<=m['completed']<=1000000000:raise ValueError()
             return result
         except (ValueError,KeyError,TypeError):raise PlayerError() from None
@@ -43,22 +47,22 @@ class PlayerAPI:
 class PlayerSync:
     def __init__(self,path,version,api=None,interval=15):
         self.path=Path(path);self.version=version;self.api=api or PlayerAPI();self.interval=interval;self.cv=threading.Condition(threading.RLock())
-        self.identity=None;self.seq=0;self.completed=0;self.content='';self.run_id='';self.running=False;self.present=True;self.closed=False
+        self.identity=None;self.seq=0;self.completed=0;self.lifetime_completed=0;self.content='';self.run_id='';self.running=False;self.present=True;self.closed=False
         self.registered=False;self.revision=0;self.dirty=False;self.players=[];self.total=0;self.offset=0;self.connected=False;self.message='닉네임을 설정해 주세요.'
         try:
             saved=json.loads(self.path.read_text(encoding='utf-8'));item=saved['identity']
             uuid.UUID(item['member_id']);nickname(item['nickname'])
             if item.get('consent_version')!=2 or not re.fullmatch('[a-f0-9]{64}',item['token']):raise ValueError()
-            self.identity=item;self.seq=max(0,min(8999999999999999,int(saved.get('seq',0))));self.completed=max(0,min(1000000000,int(saved.get('completed',0))));self.content=saved.get('content','');self.run_id=saved.get('run_id','')
+            self.identity=item;self.seq=max(0,min(8999999999999999,int(saved.get('seq',0))));self.completed=max(0,min(1000000000,int(saved.get('completed',0))));self.lifetime_completed=max(self.completed,min(MAX_LIFETIME,int(saved.get('lifetime_completed',self.completed))));self.content=saved.get('content','');self.run_id=saved.get('run_id','')
             if self.content not in ('','어비스','레이드') or not re.fullmatch('[a-fA-F0-9-]{0,36}',self.run_id):raise ValueError()
             self.message='플레이어 목록 연결 중';self.dirty=True
-        except (OSError,ValueError,KeyError,TypeError):self.identity=None;self.seq=0;self.completed=0;self.content='';self.run_id=''
+        except (OSError,ValueError,KeyError,TypeError):self.identity=None;self.seq=0;self.completed=0;self.lifetime_completed=0;self.content='';self.run_id=''
         self.thread=threading.Thread(target=self._loop,name='NyacroPlayers',daemon=True);self.thread.start()
     def has_nickname(self):
         with self.cv:return bool(self.identity)
     def _save(self):
         self.path.parent.mkdir(parents=True,exist_ok=True);tmp=self.path.with_suffix('.tmp')
-        tmp.write_text(json.dumps(dict(identity=self.identity,seq=self.seq,completed=self.completed,content=self.content,run_id=self.run_id),ensure_ascii=False),encoding='utf-8')
+        tmp.write_text(json.dumps(dict(identity=self.identity,seq=self.seq,completed=self.completed,lifetime_completed=self.lifetime_completed,content=self.content,run_id=self.run_id),ensure_ascii=False),encoding='utf-8')
         try:os.chmod(tmp,0o600)
         except OSError:pass
         os.replace(tmp,self.path)
@@ -72,12 +76,14 @@ class PlayerSync:
             except OSError:self.identity=old;raise ValueError('닉네임을 저장할 수 없습니다.') from None
             self.revision+=1;self.registered=False;self.connected=False;self.message='플레이어 목록 연결 중';self.dirty=True;self.cv.notify_all()
     def view(self):
-        with self.cv:return copy.deepcopy(dict(ready=bool(self.identity),nickname=(self.identity or {}).get('nickname',''),member_id=(self.identity or {}).get('member_id',''),players=self.players,total=self.total,offset=self.offset,connected=self.connected,message=self.message))
+        with self.cv:return copy.deepcopy(dict(ready=bool(self.identity),nickname=(self.identity or {}).get('nickname',''),member_id=(self.identity or {}).get('member_id',''),lifetime_completed=self.lifetime_completed,players=self.players,total=self.total,offset=self.offset,connected=self.connected,message=self.message))
     def new_run(self,content):
         with self.cv:self.running=True;self.completed=0;self.content=content;self.run_id=str(uuid.uuid4());self._changed()
     def count(self,value):
         with self.cv:
-            if self.running:self.completed=max(self.completed,min(1000000000,max(0,int(value))));self._changed()
+            if self.running:
+                updated=max(self.completed,min(1000000000,max(0,int(value))))
+                self.lifetime_completed=min(MAX_LIFETIME,self.lifetime_completed+updated-self.completed);self.completed=updated;self._changed()
     def stopped(self):
         with self.cv:self.running=False;self._changed()
     def _changed(self):
@@ -100,8 +106,8 @@ class PlayerSync:
                     if self.closed:return
                     self.cv.wait(max(.05,due-now) if self.identity else None);continue
                 if self.closed and not self.registered:return
-                revision=self.revision;credentials=copy.deepcopy(self.identity);register=not self.registered;self.dirty=False
-                body={k:credentials[k] for k in ('member_id','token')};body['offset']=self.offset
+                revision=self.revision;credentials=copy.deepcopy(self.identity);register=not self.registered;self.dirty=False;sent_lifetime=self.lifetime_completed
+                body={k:credentials[k] for k in ('member_id','token')};body['offset']=self.offset;body['lifetime_completed']=sent_lifetime
                 if register:body.update(op='players_register',nickname=credentials['nickname'],platform='pc',app_version=self.version,consent_version=2)
                 else:
                     self.seq+=1
@@ -110,12 +116,18 @@ class PlayerSync:
                         self.connected=False;self.message='플레이어 정보 저장 실패 · 다시 확인합니다.';due=now+self.interval
                         if self.closed:return
                         continue
-                    body.update(op='players_sync',seq=self.seq,running=self.running,present=self.present,completed=self.completed,content=self.content,run_id=self.run_id)
+                    body.update(op='players_sync',seq=self.seq,running=self.running,present=self.present,completed=self.completed,lifetime_completed=self.lifetime_completed,content=self.content,run_id=self.run_id)
             try:
                 result=self.api.call(body)
                 with self.cv:
                     if revision!=self.revision:continue
                     if register:self.registered=True;self.dirty=True
+                    # Preserve completions made while this request was in flight.
+                    merged=min(MAX_LIFETIME,max(self.lifetime_completed,result['self_lifetime_completed']+max(0,self.lifetime_completed-sent_lifetime)))
+                    if merged!=self.lifetime_completed:
+                        self.lifetime_completed=merged
+                        try:self._save()
+                        except OSError:pass
                     if result['offset']==self.offset:
                         self.players=result['players'];self.total=result['total'];self.connected=True;self.message='사용중인 플레이어 '+str(self.total)+'명 · 15초마다 갱신'
                         if self.offset and self.offset>=self.total:self.offset=max(0,(max(1,self.total)-1)//100*100);self.dirty=True

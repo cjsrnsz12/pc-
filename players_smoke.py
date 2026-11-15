@@ -15,8 +15,9 @@ def exercise_players_window(parent,report_path=None):
   def refresh(self):pass
  sync=Offline();window=PlayersWindow(parent,sync);parent.update();assert window.form.winfo_manager()=='pack'
  window.name.set('고양이');window.save.invoke();assert sync.saved==['고양이']
- sync.value.update(connected=True,total=201,message='사용중인 플레이어 201명 · 15초마다 갱신',players=[dict(id=sync.value['member_id'],nickname='고양이',platform='pc',status='running',content='어비스',completed=27),dict(id='00000000-0000-0000-0000-000000000002',nickname='냥이',platform='mobile',status='stopped',content='레이드',completed=12)])
+ sync.value.update(connected=True,total=201,message='사용중인 플레이어 201명 · 15초마다 갱신',players=[dict(id=sync.value['member_id'],nickname='고양이',platform='pc',status='running',content='어비스',completed=3,lifetime_completed=127),dict(id='00000000-0000-0000-0000-000000000002',nickname='냥이',platform='mobile',status='stopped',content='레이드',completed=2,lifetime_completed=412)])
  window.render();parent.update_idletasks();assert len(window.table.get_children())==2
+ assert {window.table.item(i)['values'][4] for i in window.table.get_children()}=={'127판','412판'}
  assert {window.table.item(i)['values'][1] for i in window.table.get_children()}=={'PC','모바일'}
  window.next.invoke();assert sync.value['offset']==100;window.render();window.prev.invoke();assert sync.value['offset']==0
  window.rename.invoke();window.name.set('새고양이');window.save.invoke();assert sync.saved[-1]=='새고양이'
