@@ -101,6 +101,8 @@ class App:
         self.previous_keys = (False,False)
         self.windows = []
         self.players=PlayerSync(DATA/'player_presence.json',VERSION)
+        from admin_diagnostics import Diagnostics
+        self.diagnostics=Diagnostics(self.players,DATA,VERSION)
         self.players_window=None
         self.settings_path = DATA/'settings.json'
         try:
@@ -269,7 +271,7 @@ class App:
         if self.players_window and self.players_window.alive:
             self.players_window.window.lift();return
         from players_ui import PlayersWindow
-        self.players_window=PlayersWindow(self.root,self.players)
+        self.players_window=PlayersWindow(self.root,self.players,diagnostics=self.diagnostics)
 
     def open_emoticons(self):
         existing=getattr(self,'emoticon_window',None)
@@ -763,7 +765,10 @@ class App:
             elif kind=='completed':
                 self.completed_count.set(f'완료 {value}판');self.players.count(value)
             elif kind=='error':
-                error,hwnd=value;self.log(str(error));self.show_operation_error('게임 조작',error,hwnd)
+                error,hwnd=value;self.log(str(error))
+                try:self.diagnostics.report(str(error),self.log_box.get('1.0','end'),self.content.get(),f'{self.root.winfo_screenwidth()}x{self.root.winfo_screenheight()}')
+                except OSError:self.log('오류 전송 기록 저장 실패')
+                self.show_operation_error('게임 조작',error,hwnd)
             elif kind=='stopped':
                 self.players.stopped()
                 self.running=False;self.lock_controls(False)
@@ -824,7 +829,7 @@ class App:
         messagebox.showerror('오류','작업을 중지했습니다. 기록 폴더의 로그 파일.log를 확인하세요.\n'+str(value),parent=self.root)
 
     def close(self):
-        self.closing=True;self.stop_event.set();self.players.close()
+        self.closing=True;self.stop_event.set();self.diagnostics.close();self.players.close()
         for cancel in self.download_cancels:cancel.set()
         self.root.after(100,self.wait_close)
 
