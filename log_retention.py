@@ -3,6 +3,7 @@ from datetime import datetime,timedelta
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 import re
+import stat
 
 LOG_FILENAME='로그 파일.log'
 STAMP=re.compile(r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}')
@@ -29,12 +30,18 @@ def log_paths(directory):
 
 def cleanup_artifacts(directory,now):
     root=Path(directory);start=cutoff(now).timestamp()
+    def modified(path):
+        try:info=path.stat()
+        except FileNotFoundError:return None  # Another export may have renamed its temporary file.
+        return info.st_mtime if stat.S_ISREG(info.st_mode) else None
     pair=[root/'diagnostics'/name for name in ('last-unrecognized.png','last-unrecognized.json')]
-    existing=[p for p in pair if p.is_file()]
-    if existing and any(p.stat().st_mtime<start for p in existing):
-        for path in existing:path.unlink(missing_ok=True)
+    existing=[(p,modified(p)) for p in pair]
+    if any(stamp is not None and stamp<start for _,stamp in existing):
+        for path,stamp in existing:
+            if stamp is not None:path.unlink(missing_ok=True)
     for path in [root/'로그 파일.zip',root/'로그 파일.zip.tmp',root/'diagnostics'/'image.tmp',root/'diagnostics'/'metadata.tmp',*root.glob('로그 파일-*.zip'),*root.glob('로그 파일-*.tmp')]:
-        if path.is_file() and path.stat().st_mtime<start:path.unlink(missing_ok=True)
+        stamp=modified(path)
+        if stamp is not None and stamp<start:path.unlink(missing_ok=True)
 
 
 class DailyRetentionHandler(RotatingFileHandler):

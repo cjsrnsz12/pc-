@@ -8,7 +8,7 @@ MAX_LIFETIME=9_000_000_000_000_000
 class PlayerError(Exception):
     def __init__(self,code='unavailable'):
         self.code=code
-        super().__init__({'invalid_request':'입력 내용을 확인해 주세요.','unauthorized':'플레이어 정보를 다시 연결하고 있습니다.','rate_limit':'요청이 많습니다. 잠시 후 다시 확인합니다.'}.get(code,'플레이어 목록에 연결할 수 없습니다. 자동으로 다시 확인합니다.'))
+        super().__init__({'invalid_request':'입력 내용을 확인해 주세요.','unauthorized':'플레이어 정보를 다시 연결하고 있습니다.','rate_limit':'요청이 많습니다. 잠시 후 다시 확인합니다.','admin_required':'관리자 인증키를 확인해 주세요.','admin_unconfigured':'관리자 기능의 서버 연결을 확인해 주세요.'}.get(code,'플레이어 목록에 연결할 수 없습니다. 자동으로 다시 확인합니다.'))
 
 def nickname(value):
     value=value.strip()
@@ -17,7 +17,7 @@ def nickname(value):
 
 class PlayerAPI:
     def __init__(self,endpoint=ENDPOINT,key=PUBLISHABLE_KEY):self.endpoint=endpoint;self.key=key
-    def call(self,body):
+    def service(self,body):
         req=urllib.request.Request(self.endpoint,json.dumps(body,ensure_ascii=False).encode(),{'Content-Type':'application/json','apikey':self.key},method='POST')
         try:
             with urllib.request.urlopen(req,timeout=7) as response:raw=response.read(131073)
@@ -30,6 +30,11 @@ class PlayerAPI:
             if len(raw)>131072:raise ValueError()
             result=json.loads(raw)
             if not isinstance(result,dict) or result.get('ok') is not True:raise PlayerError()
+            return result
+        except (ValueError,KeyError,TypeError):raise PlayerError() from None
+    def call(self,body):
+        result=self.service(body)
+        try:
             if body['op']=='players_remove':return result
             if type(result.get('self_lifetime_completed')) is not int or not 0<=result['self_lifetime_completed']<=MAX_LIFETIME:raise ValueError()
             if result.get('protocol')!=2 or result.get('page_size')!=100:raise ValueError()
@@ -39,6 +44,8 @@ class PlayerAPI:
             for m in rows:
                 uuid.UUID(m['id']);nickname(m['nickname'])
                 if m['platform'] not in ('mobile','pc') or m['status'] not in ('running','stopped') or m['content'] not in ('','어비스','레이드'):raise ValueError()
+                if 'device_types' in m and (not isinstance(m['device_types'],list) or not 1<=len(m['device_types'])<=3 or len(set(m['device_types']))!=len(m['device_types']) or any(v not in ('pc','mobile','tablet') for v in m['device_types'])):raise ValueError()
+                if 'contents' in m and (not isinstance(m['contents'],list) or len(m['contents'])>2 or len(set(m['contents']))!=len(m['contents']) or any(v not in ('어비스','레이드') for v in m['contents'])):raise ValueError()
                 if type(m.get('lifetime_completed')) is not int or not 0<=m['lifetime_completed']<=MAX_LIFETIME:raise ValueError()
                 if type(m['completed']) is not int or not 0<=m['completed']<=1000000000:raise ValueError()
             return result
@@ -47,10 +54,10 @@ class PlayerAPI:
 class PlayerSync:
     def __init__(self,path,version,api=None,interval=15):
         self.path=Path(path);self.version=version;self.api=api or PlayerAPI();self.interval=interval;self.cv=threading.Condition(threading.RLock())
-        self.identity=None;self.seq=0;self.completed=0;self.lifetime_completed=0;self.content='';self.run_id='';self.running=False;self.present=True;self.closed=False
+        self.used_devices=1;self.devices_confirmed=False;self.identity=None;self.seq=0;self.completed=0;self.lifetime_completed=0;self.content='';self.run_id='';self.running=False;self.present=True;self.closed=False
         self.registered=False;self.revision=0;self.dirty=False;self.players=[];self.total=0;self.offset=0;self.connected=False;self.message='닉네임을 설정해 주세요.'
         try:
-            saved=json.loads(self.path.read_text(encoding='utf-8'));item=saved['identity']
+            saved=json.loads(self.path.read_text(encoding='utf-8'));self.used_devices=(int(saved.get('used_devices',1))&7)|1;self.devices_confirmed=saved.get('devices_confirmed') is True;item=saved['identity']
             uuid.UUID(item['member_id']);nickname(item['nickname'])
             if item.get('consent_version')!=2 or not re.fullmatch('[a-f0-9]{64}',item['token']):raise ValueError()
             self.identity=item;self.seq=max(0,min(8999999999999999,int(saved.get('seq',0))));self.completed=max(0,min(1000000000,int(saved.get('completed',0))));self.lifetime_completed=max(self.completed,min(MAX_LIFETIME,int(saved.get('lifetime_completed',self.completed))));self.content=saved.get('content','');self.run_id=saved.get('run_id','')
@@ -62,21 +69,27 @@ class PlayerSync:
         with self.cv:return bool(self.identity)
     def _save(self):
         self.path.parent.mkdir(parents=True,exist_ok=True);tmp=self.path.with_suffix('.tmp')
-        tmp.write_text(json.dumps(dict(identity=self.identity,seq=self.seq,completed=self.completed,lifetime_completed=self.lifetime_completed,content=self.content,run_id=self.run_id),ensure_ascii=False),encoding='utf-8')
+        tmp.write_text(json.dumps(dict(identity=self.identity,used_devices=self.used_devices,devices_confirmed=self.devices_confirmed,seq=self.seq,completed=self.completed,lifetime_completed=self.lifetime_completed,content=self.content,run_id=self.run_id),ensure_ascii=False),encoding='utf-8')
         try:os.chmod(tmp,0o600)
         except OSError:pass
         os.replace(tmp,self.path)
+    def needs_devices(self):
+        with self.cv:return not self.devices_confirmed
+    def identity_body(self):
+        with self.cv:return {k:self.identity[k] for k in ('member_id','token')} if self.identity else None
     def set_nickname(self,value):
+        self.set_profile(value,self.used_devices)
+    def set_profile(self,value,devices):
         name=nickname(value)
         with self.cv:
             if self.closed:return
-            old=copy.deepcopy(self.identity)
+            old=copy.deepcopy(self.identity);old_devices=self.used_devices;old_confirmed=self.devices_confirmed;self.used_devices=(int(devices)&7)|1;self.devices_confirmed=True
             self.identity=dict(self.identity,nickname=name) if self.identity else dict(member_id=str(uuid.uuid4()),token=secrets.token_hex(32),nickname=name,consent_version=2)
             try:self._save()
-            except OSError:self.identity=old;raise ValueError('닉네임을 저장할 수 없습니다.') from None
+            except OSError:self.identity=old;self.used_devices=old_devices;self.devices_confirmed=old_confirmed;raise ValueError('닉네임을 저장할 수 없습니다.') from None
             self.revision+=1;self.registered=False;self.connected=False;self.message='플레이어 목록 연결 중';self.dirty=True;self.cv.notify_all()
     def view(self):
-        with self.cv:return copy.deepcopy(dict(ready=bool(self.identity),nickname=(self.identity or {}).get('nickname',''),member_id=(self.identity or {}).get('member_id',''),lifetime_completed=self.lifetime_completed,players=self.players,total=self.total,offset=self.offset,connected=self.connected,message=self.message))
+        with self.cv:return copy.deepcopy(dict(ready=bool(self.identity),device_type='pc',used_devices=self.used_devices,devices_confirmed=self.devices_confirmed,nickname=(self.identity or {}).get('nickname',''),member_id=(self.identity or {}).get('member_id',''),lifetime_completed=self.lifetime_completed,players=self.players,total=self.total,offset=self.offset,connected=self.connected,message=self.message))
     def new_run(self,content):
         with self.cv:self.running=True;self.completed=0;self.content=content;self.run_id=str(uuid.uuid4());self._changed()
     def count(self,value):
@@ -107,7 +120,7 @@ class PlayerSync:
                     self.cv.wait(max(.05,due-now) if self.identity else None);continue
                 if self.closed and not self.registered:return
                 revision=self.revision;credentials=copy.deepcopy(self.identity);register=not self.registered;self.dirty=False;sent_lifetime=self.lifetime_completed
-                body={k:credentials[k] for k in ('member_id','token')};body['offset']=self.offset;body['lifetime_completed']=sent_lifetime
+                body={k:credentials[k] for k in ('member_id','token')};body['offset']=self.offset;body['lifetime_completed']=sent_lifetime;body['device_type']='pc';body['used_devices']=self.used_devices
                 if register:body.update(op='players_register',nickname=credentials['nickname'],platform='pc',app_version=self.version,consent_version=2)
                 else:
                     self.seq+=1

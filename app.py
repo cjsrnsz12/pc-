@@ -54,6 +54,8 @@ from ui_theme import LauncherHeader, app_icon
 from choice_control import SmoothChoice, DIFFICULTY_COLORS, PLAY_MODES, CONTENT_TYPES
 from update_prompt import UpdatePrompt
 from players_sync import PlayerSync
+from diagnostics_sync import Diagnostics
+from collections import deque
 
 BASE = Path(getattr(sys,'_MEIPASS',Path(__file__).resolve().parent))
 DATA = Path(os.getenv('LOCALAPPDATA', str(Path.home()))) / 'AbyssHelper'
@@ -101,7 +103,7 @@ class App:
         self.previous_keys = (False,False)
         self.windows = []
         self.players=PlayerSync(DATA/'player_presence.json',VERSION)
-        self.players_window=None
+        self.players_window=None;self.admin_window=None;self.recent_logs=deque(maxlen=60);self.diagnostics=Diagnostics(DATA/'diagnostic-reports.json',self.players,VERSION)
         self.settings_path = DATA/'settings.json'
         try:
             self.settings = json.loads(self.settings_path.read_text(encoding='utf-8'))
@@ -179,7 +181,7 @@ class App:
         page.bind('<Configure>',lambda _:self.page_canvas.configure(scrollregion=self.page_canvas.bbox('all')))
         self.page_canvas.bind('<Configure>',lambda e:self.page_canvas.itemconfigure(window,width=e.width))
         self.root.bind('<MouseWheel>',self.scroll_page,add='+')
-        self.header=LauncherHeader(page,VERSION);self.header.pack(fill='x',pady=(0,14))
+        heading=ttk.Frame(page);heading.pack(fill='x',pady=(0,14));self.admin_button=ttk.Button(heading,text='⚙ 관리자',command=self.open_admin);self.admin_button.pack(side='right');self.header=LauncherHeader(heading,VERSION);self.header.pack(side='left',fill='x',expand=True)
         card=ttk.Frame(page,style='Card.TFrame',padding=14);card.pack(fill='x')
         ttk.Label(card,text='●  LIVE STATUS  /  현재 상태',style='Muted.Card.TLabel').pack(anchor='w')
         self.status=tk.StringVar(value='시작 대기')
@@ -262,14 +264,22 @@ class App:
         smooth_buttons(self.root)
 
     def first_launch(self):
-        if self.players.has_nickname():self.show_installed_changes()
+        if self.players.has_nickname() and not self.players.needs_devices():self.show_installed_changes()
         else:self.open_players()
 
     def open_players(self):
         if self.players_window and self.players_window.alive:
             self.players_window.window.lift();return
         from players_ui import PlayersWindow
-        self.players_window=PlayersWindow(self.root,self.players)
+        self.players_window=PlayersWindow(self.root,self.players,diagnostics=self.diagnostics)
+
+    def open_admin(self):
+        if self.admin_window and self.admin_window.alive:self.admin_window.window.lift();return
+        from admin_ui import AdminWindow
+        self.admin_window=AdminWindow(self.root,self.players,DATA/'admin-credential.json')
+
+    def report_stop(self,reason,screen='0x0',content=None):
+        self.diagnostics.record(reason,'\n'.join(self.recent_logs),screen,content or self.content.get())
 
     def open_emoticons(self):
         existing=getattr(self,'emoticon_window',None)
@@ -347,6 +357,7 @@ class App:
         self.log('목적지 변경: '+self.dungeon.get()+' — 화면의 실제 던전 이름과 선택 조건을 다시 확인합니다.')
 
     def log(self,message):
+        self.recent_logs.append(time.strftime('%H:%M:%S')+' '+message)
         LOG.info(message)
         self.log_box.configure(state='normal')
         self.log_box.insert('end',time.strftime('%H:%M:%S')+'  '+message+'\n')
@@ -660,6 +671,7 @@ class App:
                         self.win.click(hwnd,action.point)
                         self.events.put(('log',action.message+(f' / 찾은 버튼 위치 {action.point}' if action.key in ('abyss','dungeon') else '')))
                     if controller.state==State.BLOCKED:
+                        self.events.put(('diagnostic_stop',(controller.reason,f'{width}x{height}',config.get('content','어비스'))))
                         self.events.put(('log',controller.reason))
                         try:
                             if self.win.active(hwnd):self.save_problem(frame,{'version':VERSION,'reason':controller.reason,'screen':observation.screen,'template_scores':dict(detector.scores)})
@@ -762,8 +774,15 @@ class App:
             elif kind=='status':self.status.set(value[0]);self.detail.set(value[1])
             elif kind=='completed':
                 self.completed_count.set(f'완료 {value}판');self.players.count(value)
+            elif kind=='diagnostic_stop':
+                if self.running and not self.stop_event.is_set():self.report_stop(*value)
             elif kind=='error':
-                error,hwnd=value;self.log(str(error));self.show_operation_error('게임 조작',error,hwnd)
+                error,hwnd=value;self.log(str(error))
+                if self.running and not self.stop_event.is_set():
+                    try:_,_,w,h=self.win.rect(hwnd);screen=f'{w}x{h}'
+                    except Exception:screen='0x0'
+                    self.report_stop(str(error),screen)
+                self.show_operation_error('게임 조작',error,hwnd)
             elif kind=='stopped':
                 self.players.stopped()
                 self.running=False;self.lock_controls(False)
@@ -815,6 +834,7 @@ class App:
 
     def callback_error(self,typ,value,tb):
         LOG.error('UI error',exc_info=(typ,value,tb))
+        if self.running and not self.stop_event.is_set():self.report_stop('앱 오류: '+type(value).__name__)
         self.stop()
         if '--smoke-test' in sys.argv:
             import traceback
@@ -824,7 +844,8 @@ class App:
         messagebox.showerror('오류','작업을 중지했습니다. 기록 폴더의 로그 파일.log를 확인하세요.\n'+str(value),parent=self.root)
 
     def close(self):
-        self.closing=True;self.stop_event.set();self.players.close()
+        self.closing=True;self.stop_event.set();self.diagnostics.close();self.players.close()
+        if self.admin_window and self.admin_window.alive:self.admin_window.close()
         for cancel in self.download_cancels:cancel.set()
         self.root.after(100,self.wait_close)
 
@@ -863,7 +884,10 @@ if __name__=='__main__':
         dialog_report=exercise_update_dialogs(app,sys.argv[sys.argv.index('--report')+1])
         from players_smoke import exercise_players_window
         players_report=exercise_players_window(root,sys.argv[sys.argv.index('--report')+1])
-        report={'players':players_report,'ok':True,'version':VERSION,'templates':len(detector.data),'ui':'created','platform':sys.platform,'update_ui':update_ui_report,'style_ui':style_report,'dialog_ui':dialog_report}
+        app.admin_button.invoke();root.update();assert app.admin_window.alive;app.admin_window.close()
+        from admin_smoke import exercise_admin_window
+        admin_report=exercise_admin_window(root,sys.argv[sys.argv.index('--report')+1])
+        report={'admin':admin_report,'players':players_report,'ok':True,'version':VERSION,'templates':len(detector.data),'ui':'created','platform':sys.platform,'update_ui':update_ui_report,'style_ui':style_report,'dialog_ui':dialog_report}
         out=Path(sys.argv[sys.argv.index('--report')+1])
         out.write_text(json.dumps(report),encoding='utf-8')
         app.closing=True;root.destroy()
