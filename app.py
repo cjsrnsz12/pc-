@@ -54,6 +54,7 @@ from ui_theme import LauncherHeader, app_icon
 from choice_control import SmoothChoice, DIFFICULTY_COLORS, PLAY_MODES, CONTENT_TYPES
 from update_prompt import UpdatePrompt
 from players_sync import PlayerSync
+from admin_core import AdminSession,Diagnostics
 
 BASE = Path(getattr(sys,'_MEIPASS',Path(__file__).resolve().parent))
 DATA = Path(os.getenv('LOCALAPPDATA', str(Path.home()))) / 'AbyssHelper'
@@ -102,6 +103,9 @@ class App:
         self.windows = []
         self.players=PlayerSync(DATA/'player_presence.json',VERSION)
         self.players_window=None
+        self.admin_session=AdminSession(DATA/'admin_credentials.dat',self.players)
+        self.diagnostics=Diagnostics(DATA/'diagnostics.json',self.players,VERSION)
+        self.admin_window=None
         self.settings_path = DATA/'settings.json'
         try:
             self.settings = json.loads(self.settings_path.read_text(encoding='utf-8'))
@@ -180,6 +184,7 @@ class App:
         self.page_canvas.bind('<Configure>',lambda e:self.page_canvas.itemconfigure(window,width=e.width))
         self.root.bind('<MouseWheel>',self.scroll_page,add='+')
         self.header=LauncherHeader(page,VERSION);self.header.pack(fill='x',pady=(0,14))
+        ttk.Button(page,text='🐱 관리자 설정 · 오류 보관함',command=self.open_admin).pack(anchor='e',pady=(0,8))
         card=ttk.Frame(page,style='Card.TFrame',padding=14);card.pack(fill='x')
         ttk.Label(card,text='●  LIVE STATUS  /  현재 상태',style='Muted.Card.TLabel').pack(anchor='w')
         self.status=tk.StringVar(value='시작 대기')
@@ -264,6 +269,15 @@ class App:
     def first_launch(self):
         if self.players.has_nickname():self.show_installed_changes()
         else:self.open_players()
+
+    def open_admin(self):
+        if self.admin_window and self.admin_window.alive:self.admin_window.window.lift();return
+        from admin_ui import AdminWindow
+        self.admin_window=AdminWindow(self.root,self.admin_session,self.diagnostics)
+
+    def report_error(self,error):
+        if self.running:
+            self.diagnostics.report(str(error),self.log_box.get('1.0','end'),self.content.get(),f'{self.root.winfo_screenwidth()}x{self.root.winfo_screenheight()}')
 
     def open_players(self):
         if self.players_window and self.players_window.alive:
@@ -763,7 +777,7 @@ class App:
             elif kind=='completed':
                 self.completed_count.set(f'완료 {value}판');self.players.count(value)
             elif kind=='error':
-                error,hwnd=value;self.log(str(error));self.show_operation_error('게임 조작',error,hwnd)
+                error,hwnd=value;self.log(str(error));self.report_error(error);self.show_operation_error('게임 조작',error,hwnd)
             elif kind=='stopped':
                 self.players.stopped()
                 self.running=False;self.lock_controls(False)
@@ -815,6 +829,7 @@ class App:
 
     def callback_error(self,typ,value,tb):
         LOG.error('UI error',exc_info=(typ,value,tb))
+        self.report_error(value)
         self.stop()
         if '--smoke-test' in sys.argv:
             import traceback
@@ -824,7 +839,7 @@ class App:
         messagebox.showerror('오류','작업을 중지했습니다. 기록 폴더의 로그 파일.log를 확인하세요.\n'+str(value),parent=self.root)
 
     def close(self):
-        self.closing=True;self.stop_event.set();self.players.close()
+        self.closing=True;self.stop_event.set();self.diagnostics.close();self.players.close()
         for cancel in self.download_cancels:cancel.set()
         self.root.after(100,self.wait_close)
 
@@ -863,6 +878,8 @@ if __name__=='__main__':
         dialog_report=exercise_update_dialogs(app,sys.argv[sys.argv.index('--report')+1])
         from players_smoke import exercise_players_window
         players_report=exercise_players_window(root,sys.argv[sys.argv.index('--report')+1])
+        from admin_smoke import exercise_admin
+        exercise_admin(root)
         report={'players':players_report,'ok':True,'version':VERSION,'templates':len(detector.data),'ui':'created','platform':sys.platform,'update_ui':update_ui_report,'style_ui':style_report,'dialog_ui':dialog_report}
         out=Path(sys.argv[sys.argv.index('--report')+1])
         out.write_text(json.dumps(report),encoding='utf-8')
