@@ -83,3 +83,16 @@ def test_simultaneous_exports_use_independent_staging_files(tmp_path):
     for path in paths:
         with zipfile.ZipFile(path) as archive:assert 'concurrent' in archive.read(LOG_FILENAME).decode()
     assert not list(tmp_path.glob('*.tmp'))
+
+
+def test_cleanup_tolerates_another_export_renaming_a_temporary_file(tmp_path,monkeypatch):
+    from pathlib import Path
+    from datetime import datetime
+    from log_retention import cleanup_artifacts
+    path=tmp_path/'로그 파일-disappearing.tmp';path.write_text('in-flight export')
+    original=Path.stat
+    def gone(candidate,*args,**kwargs):
+        if candidate==path:raise FileNotFoundError(str(path))
+        return original(candidate,*args,**kwargs)
+    monkeypatch.setattr(Path,'stat',gone)
+    cleanup_artifacts(tmp_path,datetime.now())
