@@ -15,6 +15,14 @@ class PlayersWindow:
         self.name=tk.StringVar(value=sync.view()['nickname']);self.entry=ttk.Entry(self.form,textvariable=self.name);self.entry.pack(fill='x',pady=6)
         self.save=ttk.Button(self.form,text='닉네임 저장 · 목록에 공개',command=self.submit);self.save.pack(fill='x',pady=5);self.entry.bind('<Return>',lambda event:self.submit())
         self.controls=ttk.Frame(shell);self.controls.pack(fill='x',pady=5)
+        devices=ttk.Frame(shell);devices.pack(fill='x',before=self.controls)
+        ttk.Label(devices,text='어떤 기기를 이용하시나요? (복수 선택)').pack(anchor='w')
+        self.devices=[]
+        mask=sync.view().get('used_devices',1)
+        for bit,label in [(1,'PC · 현재 기기'),(2,'모바일'),(4,'태블릿')]:
+            value=tk.BooleanVar(value=bool(mask&bit));self.devices.append((bit,value))
+            ttk.Checkbutton(devices,text=label,variable=value,state='disabled' if bit==1 else 'normal').pack(side='left')
+        ttk.Button(devices,text='기기 선택 저장',command=self.save_devices).pack(side='right')
         self.rename=ttk.Button(self.controls,text='닉네임 변경',command=self.edit);self.rename.pack(side='left')
         ttk.Button(self.controls,text='새로 고침',command=sync.refresh).pack(side='left',padx=8)
         self.prev=ttk.Button(self.controls,text='이전',command=lambda:self.page(-100));self.prev.pack(side='right')
@@ -32,6 +40,10 @@ class PlayersWindow:
         try:self.sync.set_nickname(self.name.get())
         except ValueError as error:self.status.set(str(error));return
         self.editing=False;self.last=None;self.render();self.on_ready()
+    def save_devices(self):
+        try:self.sync.set_devices(sum(bit for bit,value in self.devices if value.get()))
+        except ValueError as error:self.status.set(str(error));return
+        self.status.set('기기 선택을 저장했습니다. 실제 접속은 PC로 표시됩니다.')
     def edit(self):self.editing=True;self.name.set(self.sync.view()['nickname']);self.last=None;self.render();self.entry.focus_set()
     def page(self,delta):self.sync.page(self.sync.view()['offset']+delta)
     def render(self):
@@ -45,7 +57,10 @@ class PlayersWindow:
             self.table.delete(*self.table.get_children())
             for m in v['players']:
                 status=('실행 중' if m['status']=='running' else '중지') if v['connected'] else '연결 확인 중'
-                self.table.insert('',tk.END,iid=m['id'],values=(m['nickname']+(' (나)' if m['id']==v['member_id'] else ''),'모바일' if m['platform']=='mobile' else 'PC',status,m['content'] or '—',f"{m['lifetime_completed']:,}판"))
+                kinds=m.get('device_types') or [m.get('device_type',m['platform'])]
+                devices=' · '.join(label for kind,label in [('pc','PC'),('mobile','모바일'),('tablet','태블릿')] if kind in kinds)
+                contents=' · '.join(m.get('contents') or [m['content']]) or '—'
+                self.table.insert('',tk.END,iid=m['id'],values=(m['nickname']+(' (나)' if m['id']==v['member_id'] else ''),devices,status,contents,f"{m['lifetime_completed']:,}판"))
             self.page_label.set(f"{v['offset']//100+1}페이지 · 전체 {v['total']}명")
     def refresh(self):
         if not self.alive:return
