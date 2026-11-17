@@ -1,19 +1,30 @@
 import tkinter as tk
 from tkinter import ttk
+from players_sync import device_labels
 from ui_controls import smooth_buttons,RoundScrollbar
 
 class PlayersWindow:
-    def __init__(self,parent,sync,on_ready=lambda:None):
+    def __init__(self,parent,sync,on_ready=lambda:None,diagnostics=None):
         self.sync=sync;self.on_ready=on_ready;self.alive=True;self.last=None;self.editing=not sync.has_nickname()
         self.window=tk.Toplevel(parent);self.window.title('냐크로 · 사용중인 플레이어');self.window.configure(bg='#0c1220')
         w=min(760,max(560,parent.winfo_screenwidth()-48));h=min(660,max(470,parent.winfo_screenheight()-100));self.window.geometry(f'{w}x{h}+24+24');self.window.minsize(min(560,w),min(470,h));self.window.protocol('WM_DELETE_WINDOW',self.close)
         shell=ttk.Frame(self.window,padding=18);shell.pack(fill='both',expand=True)
+        if diagnostics:
+            from admin_ui import AdminWindow
+            ttk.Button(shell,text='🐱 관리자 설정',command=lambda:AdminWindow(self.window,diagnostics)).pack(anchor='e')
         ttk.Label(shell,text='사용중인 플레이어',font=('맑은 고딕',20,'bold')).pack(anchor='w')
-        ttk.Label(shell,text='닉네임을 저장하면 모든 냐크로 사용자에게 닉네임 · 모바일/PC · 실행 상태 · 콘텐츠 · 누적 완료 횟수가 공개됩니다.',wraplength=690,style='Muted.TLabel').pack(fill='x',pady=(7,12))
+        ttk.Label(shell,text='닉네임을 저장하면 모든 냐크로 사용자에게 닉네임 · PC/모바일/태블릿 · 실행 상태 · 콘텐츠 · 누적 완료 횟수가 공개됩니다.',wraplength=690,style='Muted.TLabel').pack(fill='x',pady=(7,12))
         self.status=tk.StringVar();ttk.Label(shell,textvariable=self.status,wraplength=690).pack(fill='x',pady=6)
         self.form=ttk.Frame(shell);self.form.pack(fill='x');ttk.Label(self.form,text='처음 사용할 닉네임 (1~20자)').pack(anchor='w')
         self.name=tk.StringVar(value=sync.view()['nickname']);self.entry=ttk.Entry(self.form,textvariable=self.name);self.entry.pack(fill='x',pady=6)
         self.save=ttk.Button(self.form,text='닉네임 저장 · 목록에 공개',command=self.submit);self.save.pack(fill='x',pady=5);self.entry.bind('<Return>',lambda event:self.submit())
+        self.device_form=ttk.Frame(shell);self.device_form.pack(fill='x',pady=5)
+        ttk.Label(self.device_form,text='어떤 기기를 이용하시나요? (여러 개 선택 가능)').pack(anchor='w')
+        selected=sync.view().get('used_devices',['pc']);self.devices={}
+        for kind,label in [('pc','PC'),('mobile','모바일'),('tablet','태블릿')]:
+            var=tk.BooleanVar(value=kind in selected);self.devices[kind]=var
+            ttk.Checkbutton(self.device_form,text=label,variable=var).pack(side='left',padx=4)
+        ttk.Button(self.device_form,text='기기 선택 저장',command=self.save_devices).pack(side='right')
         self.controls=ttk.Frame(shell);self.controls.pack(fill='x',pady=5)
         self.rename=ttk.Button(self.controls,text='닉네임 변경',command=self.edit);self.rename.pack(side='left')
         ttk.Button(self.controls,text='새로 고침',command=sync.refresh).pack(side='left',padx=8)
@@ -25,9 +36,13 @@ class PlayersWindow:
         for key,label,width in [('name','닉네임',170),('platform','사용 기기',80),('state','상태',90),('content','콘텐츠',85),('count','누적 완료',110)]:self.table.heading(key,text=label);self.table.column(key,width=width,minwidth=55)
         scroll=RoundScrollbar(table,command=self.table.yview);scroll.pack(side='right',fill='y');self.table.configure(yscrollcommand=scroll.set);self.table.pack(fill='both',expand=True)
         self.page_label=tk.StringVar();ttk.Label(shell,textvariable=self.page_label,style='Muted.TLabel').pack(anchor='w')
-        ttk.Label(shell,text='누적 횟수는 새 실행·중지·재실행 후에도 유지됩니다. 연결이 끊기면 약 1분 후 목록에서 빠집니다.',wraplength=690,style='Muted.TLabel').pack(fill='x',pady=(5,0))
+        ttk.Label(shell,text='같은 닉네임은 한 줄로 표시하며 기기별 누적 완료를 합산합니다. 현재 접속한 기기 종류가 표시됩니다. 연결이 끊기면 약 1분 후 목록에서 빠집니다.',wraplength=690,style='Muted.TLabel').pack(fill='x',pady=(5,0))
         smooth_buttons(self.window);self.refresh()
         if self.editing:self.entry.focus_set()
+    def save_devices(self):
+        try:self.sync.set_devices([k for k,v in self.devices.items() if v.get()])
+        except ValueError as error:self.status.set(str(error));return
+        self.status.set('이용 기기를 저장했습니다. 현재 접속은 PC로 표시됩니다.')
     def submit(self):
         try:self.sync.set_nickname(self.name.get())
         except ValueError as error:self.status.set(str(error));return
@@ -45,7 +60,7 @@ class PlayersWindow:
             self.table.delete(*self.table.get_children())
             for m in v['players']:
                 status=('실행 중' if m['status']=='running' else '중지') if v['connected'] else '연결 확인 중'
-                self.table.insert('',tk.END,iid=m['id'],values=(m['nickname']+(' (나)' if m['id']==v['member_id'] else ''),'모바일' if m['platform']=='mobile' else 'PC',status,m['content'] or '—',f"{m['lifetime_completed']:,}판"))
+                self.table.insert('',tk.END,iid=m['id'],values=(m['nickname']+(' (나)' if m['id']==v['member_id'] else ''),device_labels(m),status,' · '.join(m.get('contents',[])) or m['content'] or '—',f"{m['lifetime_completed']:,}판"))
             self.page_label.set(f"{v['offset']//100+1}페이지 · 전체 {v['total']}명")
     def refresh(self):
         if not self.alive:return

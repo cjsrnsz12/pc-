@@ -1,7 +1,7 @@
 {
-  "version": "1.1.44",
-  "title": "음식 선택 설정",
-  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.1.44",
-  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.1.44/AbyssHelper.exe",
-  "notes": "선택 안 함 / 여행자 간식 / 삶은 달걀 중 선택 · 어비스와 레이드에서 선택한 음식만 인식해 사용합니다."
+  "version": "1.1.48",
+  "title": "관리자·기기 설정",
+  "release_url": "https://github.com/cjsrnsz12/pc-/releases/tag/v1.1.48",
+  "download_url": "https://github.com/cjsrnsz12/pc-/releases/download/v1.1.48/AbyssHelper.exe",
+  "notes": "🐱 냐크로 PC 업데이트 · v1.1.48\n\n- 관리자 오류 보관함 추가\n\n- 관리자 인증 유지\n\n- PC·모바일·태블릿 중복 선택\n\n- 닉네임 통합·누적 완료 합산 표시\n\n- 동의한 오류 기록 자동 전송\n"
 }

@@ -11,6 +11,7 @@ def exercise_players_window(parent,report_path=None):
   def set_nickname(self,name):
    from players_sync import nickname
    self.saved.append(nickname(name));self.value.update(ready=True,nickname=name)
+  def set_devices(self,values):self.value['used_devices']=values
   def page(self,offset):self.value['offset']=offset
   def refresh(self):pass
  sync=Offline();window=PlayersWindow(parent,sync);parent.update();assert window.form.winfo_manager()=='pack'
@@ -22,6 +23,24 @@ def exercise_players_window(parent,report_path=None):
  window.next.invoke();assert sync.value['offset']==100;window.render();window.prev.invoke();assert sync.value['offset']==0
  window.rename.invoke();window.name.set('새고양이');window.save.invoke();assert sync.saved[-1]=='새고양이'
  window.render();parent.update_idletasks()
+ from admin_ui import AdminWindow
+ class Diagnostics:
+  consent=False;key=''
+  def set_consent(self,enabled):self.consent=enabled
+  def admin(self,op,key=None,**fields):
+   if op=='admin_list_errors':return dict(total=1,reports=[dict(id='00000000-0000-0000-0000-000000000005',nickname='검사',device_type='tablet',stop_reason='오류')])
+   return dict(report=dict(id='00000000-0000-0000-0000-000000000005',logs='검사 기록'))
+  def logout(self):self.key=''
+ diagnostic=Diagnostics();admin=AdminWindow(parent,diagnostic);parent.update();admin.key.set('a'*64);admin.login()
+ import time
+ deadline=time.monotonic()+3
+ while admin.busy and time.monotonic()<deadline:parent.update();time.sleep(.01)
+ assert len(admin.table.get_children())==1
+ admin.table.selection_set(admin.table.get_children()[0]);parent.update()
+ deadline=time.monotonic()+3
+ while admin.busy and time.monotonic()<deadline:parent.update();time.sleep(.01)
+ assert admin.current and admin.current['logs']=='검사 기록'
+ admin.close()
  if report_path:
   from PIL import ImageGrab
   win=window.window;ImageGrab.grab((win.winfo_rootx(),win.winfo_rooty(),win.winfo_rootx()+win.winfo_width(),win.winfo_rooty()+win.winfo_height())).save(Path(report_path).with_name('abyss-players-preview.png'))
