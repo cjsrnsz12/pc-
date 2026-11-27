@@ -32,9 +32,9 @@ import cv2
 import mss
 import numpy as np
 from PIL import Image, ImageTk
-from engine import Controller, Observation, State
+from engine import Action, Controller, Observation, State
 from raid import RaidController,RaidVision,RAID_DIFFICULTIES
-from recognition_timing import poll_interval, same_detection
+from recognition_timing import UltimateTiming, poll_interval, same_detection
 from run_count import RunCount
 from food_templates import FOOD_OPTIONS, selected_food_kind
 from list_centering import ListCentering,RaidEntryCentering
@@ -556,6 +556,7 @@ class App:
             detector=RaidVision(BASE/'assets.json',food_kind) if raid else Vision(BASE/'assets.json',food_kind)
             controller=RaidController(config['difficulty']) if raid else Controller(config['dungeon'],config['difficulty'],config['repeat'],party=config.get('play_mode')==PLAY_MODES[1])
             run_count=RunCount()
+            ultimate = UltimateTiming()
             last_screen,streak,food_streak='',0,0
             previous_observation=None
             list_center=ListCentering();raid_center=RaidEntryCentering()
@@ -583,6 +584,7 @@ class App:
                         self.stop_event.wait(.25);continue
                     elapsed=pause.resume(now)
                     if elapsed is not None:
+                        ultimate.pause()
                         if controller.entered_at is not None:controller.entered_at+=elapsed
                         if controller.wipe_since is not None:controller.wipe_since+=elapsed
                         last_status=None;last_screen='';streak=0;previous_observation=None
@@ -598,6 +600,7 @@ class App:
                             raid_center.completed()
                             self.events.put(('log','레이드 보스방: 중앙 (400, 500)으로 부드럽게 이동 완료 → 화면 새로 캡처·재인식'))
                         previous_observation=None;streak=0;food_streak=0;last_screen='';last_status=None
+                        ultimate.pause()
                         self.stop_event.wait(.10)
                         continue
                     center_due=list_center.observe(observation.screen) if not recovering else False
@@ -608,6 +611,7 @@ class App:
                             self.events.put(('log','어비스 목록: 중앙 위 (400, 350)로 부드럽게 이동 완료 → 화면 새로 캡처·이름 재확인'))
                         # Never reuse the pre-move image or its click coordinates.
                         previous_observation=None;streak=0;last_screen='';last_status=None
+                        ultimate.pause()
                         self.stop_event.wait(.10)
                         continue
 
@@ -642,6 +646,20 @@ class App:
                     else:unknown_since=None;warned=False
                     before_recoveries=controller.wipe_recoveries
                     action=controller.step(observation,now) if streak>=2 else None
+                    ultimate_point = None
+                    if (
+                        streak >= 2 and not recovering
+                        and observation.screen in ('combat', 'raid_inside')
+                        and controller.state in (State.COMBAT, State.BOSS)
+                        and not controller.clear_clicked and controller.dead_since is None
+                    ):
+                        ultimate_point = detector.ultimate_target()
+                    if ultimate.ready(
+                        now,
+                        active=ultimate_point is not None,
+                        can_click=action is None and now >= controller.settle_until,
+                    ):
+                        action = Action('ultimate', ultimate_point, '전투 중 · 6번 궁극기 클릭')
                     if controller.wipe_recoveries!=before_recoveries:
                         detector.stillness.reset();list_center=ListCentering();raid_center=RaidEntryCentering()
                         previous_observation=None;streak=0;food_streak=0;last_screen='';last_status=None
@@ -658,6 +676,8 @@ class App:
                     if status!=last_status:self.events.put(('status',status));last_status=status
                     if action and not self.stop_event.is_set():
                         self.win.click(hwnd,action.point)
+                        if action.key == 'ultimate':
+                            ultimate.clicked()
                         self.events.put(('log',action.message+(f' / 찾은 버튼 위치 {action.point}' if action.key in ('abyss','dungeon') else '')))
                     if controller.state==State.BLOCKED:
                         self.events.put(('log',controller.reason))

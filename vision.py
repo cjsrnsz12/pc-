@@ -247,6 +247,35 @@ class Vision:
             if aligned and np.mean(colored[ring])>.07:matched+=1
         return matched>=4
 
+    def ultimate_target(self):
+        # The numbered bar also appears outside combat. Require a red enemy HP
+        # fill with a dark lower edge in the play area before using slot 6.
+        area = self.frame[150:740, 70:730]
+        hue, saturation, value = cv2.split(cv2.cvtColor(area, cv2.COLOR_BGR2HSV))
+        red = ((hue < 10) | (hue > 165)) & (saturation > 150) & (value > 125)
+        _, _, stats, _ = cv2.connectedComponentsWithStats(red.astype(np.uint8))
+        for x, y, width, height, count in stats[1:]:
+            if not (32 <= width <= 240 and 4 <= height <= 13 and count >= .8 * width * height):
+                continue
+            edge = value[y+height:y+height+2, x:x+width]
+            if edge.size and np.max(np.mean(edge < 80, axis=1)) >= .75:
+                break
+        else:
+            return None
+
+        # Find the sixth hotkey badge and click the center of its skill icon.
+        x0, y0 = 515, 816
+        roi = self.gray[y0:879, x0:601]
+        candidates = []
+        for template in self.skill_badge_templates()[-1]:
+            _, score, _, (x, y) = cv2.minMaxLoc(cv2.matchTemplate(roi, template, cv2.TM_CCOEFF_NORMED))
+            height, width = template.shape
+            candidates.append((score, x0+x+width//2, y0+y+height//2))
+        score, x, y = max(candidates)
+        if score >= .65:
+            return x+23, y+22
+        return None
+
     def observe(self, frame, dungeon, difficulty, after_clear=False):
         return self.with_survival(self.observe_scene(frame,dungeon,difficulty,after_clear))
 
