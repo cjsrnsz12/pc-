@@ -148,3 +148,28 @@ def test_plain_user_exit_dialog_does_not_claim_a_wipe_but_visible_red_heading_ca
     o=Observation('wipe_dialog',{'leave':(499,919)})
     c=cls();assert c.step(o,0) is None and not c.wipe_stage
     assert c.step(Observation('wipe_dialog',{'leave':(499,919)},wipe_verified=True),1).key=='wipe_leave'
+
+
+def test_mission_popup_during_wipe_exit_resumes_reentry():
+    controller = Controller()
+    controller.repeats = 44
+    wipe = Observation('wipe', {'exit': (765, 116)}, wipe_verified=True)
+    dialog = Observation('wipe_dialog', {'leave': (499, 919)}, wipe_verified=True)
+    mission = Observation('mission', {'confirm': (400, 950)})
+    field = Observation('field', {'menu': (770, 60)}, still=True)
+
+    assert controller.step(wipe, 0).key == 'wipe_exit'
+    assert controller.step(dialog, 1).key == 'wipe_leave'
+    assert controller.step(mission, 239).key == 'mission'
+    assert controller.step(mission, 241) is None
+    assert controller.step(mission, 242).key == 'mission'
+    assert controller.state == State.RESTART
+    assert controller.wipe_stage == 'leaving'
+
+    assert controller.step(field, 245) is None
+    assert controller.wipe_stage == 'leaving'
+    assert controller.step(field, 246) is None
+    assert controller.wipe_recoveries == 1
+    assert controller.repeats == 44
+    assert controller.step(field, 247) is None
+    assert controller.step(field, 251).key == 'menu'
