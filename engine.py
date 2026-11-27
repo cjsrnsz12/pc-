@@ -92,10 +92,6 @@ class Controller:
     def step(self, o: Observation, now: float):
         if self.state == State.BLOCKED:
             return None
-        handled,action=self.wipe_action(o,now)
-        if handled:return action
-        action=self.survival_action(o,now)
-        if o.screen=='dead' or self.dead_since is not None or action is not None:return action
         # Cooperative mission is an overlay: never reset the underlying dungeon phase.
         if o.screen == 'mission':
             if self.popup_since is None:
@@ -106,6 +102,8 @@ class Controller:
             if self.popup_attempts >= 3:
                 self.state, self.reason = State.BLOCKED, '협동 미션 확인창이 닫히지 않습니다.'
                 return None
+            if now < self.settle_until:
+                return None
             self.popup_last = now
             self.popup_attempts += 1
             self.settle_until = now + 0.65
@@ -114,10 +112,17 @@ class Controller:
             elapsed = now - self.popup_since
             if self.entered_at is not None:
                 self.entered_at += elapsed
+            if self.wipe_since is not None:
+                self.wipe_since += elapsed
+                self.wipe_outside_frames = 0
             self.popup_since = None
             self.popup_attempts = 0
             self.still_since = None
             self.settle_until = now + 0.65
+        handled,action=self.wipe_action(o,now)
+        if handled:return action
+        action=self.survival_action(o,now)
+        if o.screen=='dead' or self.dead_since is not None or action is not None:return action
         if now < self.settle_until:
             return None
         if o.screen != self.last_screen:
